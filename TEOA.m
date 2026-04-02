@@ -69,3 +69,72 @@ for i = 1:4
     plot(avgEpoch{i});
     title(['Average epoch ' types{i}]);
 end
+
+
+
+
+
+
+
+
+
+
+
+oae_est = avgEpoch{1} + avgEpoch{2} + avgEpoch{3} - 3*avgEpoch{4};
+t = (0:epochSize-1)/fs*1000; % ms
+
+figure;
+plot(t, oae_est);
+xlabel('Time (ms)');
+ylabel('Amplitude');
+title(['Estimated OAE for patient ' patient]);
+grid on;
+
+templates = jsondecode(fileread('../lostOaes.json'));
+names = fieldnames(templates);
+
+oae_est = oae_est(:);
+
+if norm(oae_est) == 0
+    error('oae_est is all zeros');
+end
+
+oae_n = oae_est / norm(oae_est);
+
+bestCorr = -inf;
+bestName = '';
+bestTemplate = [];
+
+for k = 1:length(names)
+    temp = templates.(names{k});
+    temp = temp(:);
+
+    % resample template to same length as estimated OAE
+    temp_rs = resample(temp, length(oae_est), length(temp));
+
+    % normalize
+    temp_n = temp_rs / norm(temp_rs);
+
+    % compare
+    corrVal = dot(oae_n, temp_n);
+
+    fprintf('%s -> corr = %.3f\n', names{k}, corrVal);
+
+    if corrVal > bestCorr
+        bestCorr = corrVal;
+        bestName = names{k};
+        bestTemplate = temp_n;
+    end
+end
+
+fprintf('\nBest match: %s (corr = %.3f)\n', bestName, bestCorr);
+
+figure;
+plot(oae_n, 'LineWidth', 1.5);
+hold on;
+plot(bestTemplate, 'LineWidth', 1.5);
+grid on;
+legend('Estimated OAE', ['Best template: ' bestName]);
+title(sprintf('Best match: %s (corr = %.3f)', bestName, bestCorr));
+xlabel('Sample');
+ylabel('Normalized amplitude');
