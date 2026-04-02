@@ -1,6 +1,6 @@
 clear; clc;
 
-patient = '194134';
+patient = '194008';
 basePath = '/Users/kourosh/Desktop/University/Self Study/Audio-Explorers20206/Diagnostics DSP/Patient Data';
 filePath = fullfile(basePath, ['patient_' patient], ['Patient_' patient '_rec.wav']);
 [rec, fs] = audioread(filePath);
@@ -16,11 +16,33 @@ info = jsondecode(fileread(['Patient_' patient '_info.json']));
 epochSize = info.epochSize;
 
 
-
 triggerIdx = cell(1,4);
 
 for i = 1:4
-    triggerIdx{i} = find(trigger{i} > 0);   
+    trigMask = trigger{i} > 0;
+    actMask  = active{i} > 0.5;
+
+    % trigger starts: rising edges of trigger
+    trigStarts = find(diff([0; trigMask]) == 1);
+
+    % active regions: start/end of active blocks
+    actStarts = find(diff([0; actMask]) == 1);
+    actEnds   = find(diff([actMask; 0]) == -1);
+
+    validStarts = [];
+
+    for k = 1:length(trigStarts)
+        s = trigStarts(k);
+
+        % keep trigger only if it falls inside an active block
+        inside = any(s >= actStarts & s <= actEnds);
+
+        if inside
+            validStarts(end+1,1) = s; %#ok<AGROW>
+        end
+    end
+
+    triggerIdx{i} = validStarts;
 end
 
 disp(length(triggerIdx{1}))
