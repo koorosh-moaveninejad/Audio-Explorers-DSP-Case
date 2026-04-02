@@ -31,3 +31,41 @@ disp(length(triggerIdx{4}))
 % does each trigger define the start of one 882-sample epoch?
 % do active masks agree with that?
 
+
+
+
+
+
+
+
+epochs = cell(1,4);
+for i = 1:4
+    idx = triggerIdx{i};
+    n = length(idx);
+    tmp = zeros(epochSize, n);
+    validCount = 0;
+    for k = 1:n
+        s = idx(k);
+        e = s + epochSize - 1;
+        if e <= length(rec)
+            validCount = validCount + 1;
+            tmp(:, validCount) = rec(s:e);
+        end
+    end
+
+    epochs{i} = tmp(:,1:validCount);
+end
+
+
+avgEpoch = cell(1,4);
+
+for i = 1:4
+    avgEpoch{i} = mean(epochs{i}, 2);
+end
+
+figure;
+for i = 1:4
+    subplot(4,1,i);
+    plot(avgEpoch{i});
+    title(['Average epoch ' types{i}]);
+end
