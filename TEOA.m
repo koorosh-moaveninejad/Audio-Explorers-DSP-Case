@@ -14,3 +14,20 @@ epochSize = info.epochSize;
 
 
 
+triggerIdx = cell(1,4);
+
+for i = 1:4
+    triggerIdx{i} = find(trigger{i} > 0);   
+end
+
+disp(length(triggerIdx{1}))
+disp(length(triggerIdx{2}))
+disp(length(triggerIdx{3}))
+disp(length(triggerIdx{4}))
+
+
+% 
+% are the triggers equally spaced?
+% does each trigger define the start of one 882-sample epoch?
+% do active masks agree with that?
+
