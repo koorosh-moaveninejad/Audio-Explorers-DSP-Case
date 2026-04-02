@@ -1,8 +1,11 @@
 clear; clc;
 
 patient = '194134';
-[rec, fs] = audioread(['Patient_' patient '_rec.wav']);
-trigger = cell(1,4);
+basePath = '/Users/kourosh/Desktop/University/Self Study/Audio-Explorers20206/Diagnostics DSP/Patient Data';
+filePath = fullfile(basePath, ['patient_' patient], ['Patient_' patient '_rec.wav']);
+[rec, fs] = audioread(filePath);
+
+
 active  = cell(1,4);
 types = {'A','B','C','D'};
 for i = 1:4
@@ -90,7 +93,7 @@ ylabel('Amplitude');
 title(['Estimated OAE for patient ' patient]);
 grid on;
 
-templates = jsondecode(fileread('../lostOaes.json'));
+templates = jsondecode(fileread('lostOaes.json'));
 names = fieldnames(templates);
 
 oae_est = oae_est(:);
