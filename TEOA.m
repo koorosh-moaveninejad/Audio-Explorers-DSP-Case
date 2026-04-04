@@ -1,6 +1,6 @@
 clear; clc;
 
-patient = '194151';
+patient = '194143';
 basePath = '/Users/kourosh/Desktop/University/Self Study/Audio-Explorers20206/Diagnostics DSP/Patient Data';
 patientFolder = fullfile(basePath, ['patient_' patient]);
 
@@ -81,37 +81,54 @@ for i = 1:4
 end
 
 
+
+
 avgEpoch = cell(1,4);
 alignedEpochs = cell(1,4);
-
-maxLag = 20;   % you can tune this later
+maxLag = 40;
+alignStart = 30;
+alignEnd   = min(epochSize, 40);
 
 for i = 1:4
-    X = epochs{i};   % size: epochSize x number_of_epochs
-    ref = median(X,2);   % much better reference
+    X = epochs{i};
 
-    X_aligned = zeros(size(X));
+    ref = median(X, 2);
 
-    for k = 1:size(X,2)
-        x = X(:,k);
+    for iter = 1:3
+        X_aligned = zeros(size(X));
 
-        [xc, lags] = xcorr(x, ref, maxLag, 'coeff');
-        [~, idxMax] = max(xc);
-        lag = lags(idxMax);
+        refWin = ref(alignStart:alignEnd);
 
-       if lag > 0
-            X_aligned(:,k) = [x(lag+1:end); zeros(lag,1)];
-       elseif lag < 0
-            s = -lag;
-            X_aligned(:,k) = [zeros(s,1); x(1:end-s)];
-        else
-            X_aligned(:,k) = x;
+        for k = 1:size(X,2)
+            x = X(:,k);
+            xWin = x(alignStart:alignEnd);
+
+            [xc, lags] = xcorr(xWin, refWin, maxLag, 'coeff');
+            [~, idxMax] = max(abs(xc));
+            lag = lags(idxMax);
+
+            if lag > 0
+                X_aligned(:,k) = [x(lag+1:end); zeros(lag,1)];
+            elseif lag < 0
+                s = -lag;
+                X_aligned(:,k) = [zeros(s,1); x(1:end-s)];
+            else
+                X_aligned(:,k) = x;
+            end
         end
+
+        X = X_aligned;
+        ref = median(X, 2);
     end
 
     alignedEpochs{i} = X_aligned;
     avgEpoch{i} = median(X_aligned, 2);
 end
+
+
+
+
+
 % figure;
 % subplot(2,1,1)
 % plot(epochs{1}(:,1:min(20,size(epochs{1},2))));
@@ -128,6 +145,11 @@ end
 
 
 oae_est = avgEpoch{1} + avgEpoch{2} + avgEpoch{3} - 3*avgEpoch{4};
+oae_est = oae_est(:);
+oae_est = oae_est - mean(oae_est);
+oae_est = bandpass(oae_est, [1000 3900], fs);
+
+
 t = (0:epochSize-1)/fs*1000; % ms
 
 figure;
@@ -157,7 +179,7 @@ title('Fourier Transform of Estimated OAE');
 templates = jsondecode(fileread('lostOaes.json'));
 names = fieldnames(templates);
 % pick one template (e.g., first one)
-temp = templates.(names{4});
+temp = templates.(names{3});
 temp = temp(:);
 % FFT
 N = length(temp);
@@ -175,51 +197,52 @@ title(['FFT of template: ' names{1}]);
 
 
 
-% templates = jsondecode(fileread('lostOaes.json'));
-% names = fieldnames(templates);
-% 
-% oae_est = oae_est(:);
-% 
-% if norm(oae_est) == 0
-%     error('oae_est is all zeros');
-% end
-% 
-% oae_n = oae_est / norm(oae_est);
-% 
-% bestCorr = -inf;
-% bestName = '';
-% bestTemplate = [];
-% 
-% for k = 1:length(names)
-%     temp = templates.(names{k});
-%     temp = temp(:);
-% 
-%     % resample template to same length as estimated OAE
-%     temp_rs = resample(temp, length(oae_est), length(temp));
-% 
-%     % normalize
-%     temp_n = temp_rs / norm(temp_rs);
-% 
-%     % compare
-%     corrVal = dot(oae_n, temp_n);
-% 
-%     fprintf('%s -> corr = %.3f\n', names{k}, corrVal);
-% 
-%     if corrVal > bestCorr
-%         bestCorr = corrVal;
-%         bestName = names{k};
-%         bestTemplate = temp_n;
-%     end
-% end
-% 
-% fprintf('\nBest match: %s (corr = %.3f)\n', bestName, bestCorr);
-% 
-% figure;
-% plot(oae_n, 'LineWidth', 1.5);
-% hold on;
-% plot(bestTemplate, 'LineWidth', 1.5);
-% grid on;
-% legend('Estimated OAE', ['Best template: ' bestName]);
-% title(sprintf('Best match: %s (corr = %.3f)', bestName, bestCorr));
-% xlabel('Sample');
-% ylabel('Normalized amplitude');
+
+
+
+figure;
+hold on;
+
+for k = 1:min(10, size(alignedEpochs{1},2))
+    x = alignedEpochs{1}(:,k);
+    x = x - mean(x);
+
+    N = length(x);
+    Y = fft(x);
+    P2 = abs(Y/N);
+    P1 = P2(1:floor(N/2)+1);
+    P1(2:end-1) = 2*P1(2:end-1);
+    f = fs*(0:floor(N/2))/N;
+
+    plot(f, P1);
+end
+
+grid on;
+xlabel('Frequency (Hz)');
+ylabel('Magnitude');
+title('FFT of individual aligned epochs (Type A)');
+xlim([0 5000]);
+
+figure;
+hold on;
+
+
+for k = 1:min(10, size(alignedEpochs{2},2))
+    x = alignedEpochs{2}(:,k);
+    x = x - mean(x);
+
+    N = length(x);
+    Y = fft(x);
+    P2 = abs(Y/N);
+    P1 = P2(1:floor(N/2)+1);
+    P1(2:end-1) = 2*P1(2:end-1);
+    f = fs*(0:floor(N/2))/N;
+
+    plot(f, P1);
+end
+
+grid on;
+xlabel('Frequency (Hz)');
+ylabel('Magnitude');
+title('FFT of individual aligned epochs (Type A)');
+xlim([0 5000]);
