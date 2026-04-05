@@ -60,25 +60,27 @@ for p = 1:length(patientFolders)
     end
     oae_raw = acc / max(1, v_sets);
     
-    % 4.Post-Processing ---
+    % 4. Wavelet-Boosted Post-Processing
     t = (0:info.epochSize-1)' / fs;
     
-    % Create a Time-Frequency Gate (Narrower at the start, wider at the end)
-    % This kills early low-freq noise and late high-freq noise
-    oae_boosted = oae_raw;
-    win_env = exp(-((t-0.008).^2)/(2*0.004^2)); % Gaussian centered at 8ms
-    oae_boosted = oae_boosted .* win_env;
+    % A. Initial Bandpass (Broad) to clear DC and high-hiss
+    bpFilt = designfilt('bandpassiir','FilterOrder',6, ...
+        'HalfPowerFrequency1',800,'HalfPowerFrequency2',4500, 'SampleRate',fs);
+    pre_filtered = filtfilt(bpFilt, oae_raw);
     
-    % Zero-phase filtering with a tighter transition
-    bpFilt = designfilt('bandpassiir','FilterOrder',10, ...
-        'HalfPowerFrequency1',1200,'HalfPowerFrequency2',3800, 'SampleRate',fs);
-    oae_clean = filtfilt(bpFilt, oae_boosted);
+    % B. Wavelet Denoising (The "Magic" Step)
+    % 'db4' (Daubechies 4) is excellent for OAEs because its shape 
+    % resembles a biological "wiggle".
+    % 'UniversalThreshold' automatically calculates the noise floor.
+    oae_denoised = wdenoise(pre_filtered, 5, ...
+        'Wavelet', 'db4', ...
+        'DenoisingMethod', 'UniversalThreshold', ...
+        'ThresholdRule', 'Soft');
     
-    % Final Noise Floor Leveling
-    noise_est = (mean(epochData{1},2) + mean(epochData{2},2)) - ...
-                (mean(epochData{3},2) + mean(epochData{4},2));
-    oae_clean = oae_clean - (0.1 * filtfilt(bpFilt, noise_est)); % Subtract 10% of estimated noise
-    
+    % C. Apply Gaussian Window to focus on 4-15ms
+    win_env = exp(-((t-0.009).^2)/(2*0.0045^2)); 
+    oae_clean = oae_denoised .* win_env;
+
     % 5. Match against all templates
     m_idx = (t > 0.004 & t < 0.016);
     oae_crop = oae_clean(m_idx);
