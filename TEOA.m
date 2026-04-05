@@ -18,229 +18,82 @@ fprintf('Processing %d patients... Please wait.\n', length(patientFolders));
 
 
 
-for i = 1:4
-    trigger{i} = audioread(fullfile(patientFolder, ['Patient_' patient '_trigger' types{i} '.wav']));
-    active{i}  = audioread(fullfile(patientFolder, ['Patient_' patient '_active'  types{i} '.wav']));
-end
-
-info = jsondecode(fileread(fullfile(patientFolder, ['Patient_' patient '_info.json'])));
-epochSize = info.epochSize;
-rec = rec / info.recNorm;
-
-
-
-
-
-
-
-activeStarts = cell(1,4);
-activeEnds   = cell(1,4);
-epochSigns   = cell(1,4);
-epochs       = cell(1,4);
-
-for i = 1:4
-    actMask = active{i} > 0.5;
-
-    % active regions
-    aStarts = find(diff([0; actMask]) == 1);
-    aEnds   = find(diff([actMask; 0]) == -1);
-
-    activeStarts{i} = aStarts;
-    activeEnds{i}   = aEnds;
-
-    % all nonzero trigger events with sign
-    trigIdxAll = find(trigger{i} ~= 0);
-    trigValAll = trigger{i}(trigIdxAll);
-
-    nBlocks = length(aStarts);
-    tmpEpochs = zeros(epochSize, nBlocks);
-    tmpSigns  = zeros(nBlocks,1);
-    validCount = 0;
-
-    for k = 1:nBlocks
-        s = aStarts(k);
-        e = s + epochSize - 1;
-
-        if e > length(rec)
-            continue;
-        end
-
-        % trigger events inside this active block
-        inside = trigIdxAll >= aStarts(k) & trigIdxAll <= aEnds(k);
-
-        if ~any(inside)
-            continue;
-        end
-
-        % usually there should be one trigger in the block;
-        % if more than one, take the first one
-        trigPos = trigIdxAll(find(inside, 1, 'first'));
-        trigVal = trigger{i}(trigPos);
-
-        validCount = validCount + 1;
-        tmpEpochs(:,validCount) = rec(s:e);
-        tmpSigns(validCount,1) = sign(trigVal);
-    end
-
-    epochs{i} = tmpEpochs(:,1:validCount);
-    epochSigns{i} = tmpSigns(1:validCount);
-
-    fprintf('Type %s: kept %d active epochs, +1=%d, -1=%d\n', ...
-        types{i}, validCount, ...
-        sum(epochSigns{i}>0), sum(epochSigns{i}<0));
-end
-
-
-
-
-
-
-avgEpoch = cell(1,4);
-alignedEpochs = cell(1,4);
-epochsize=info.epochSize
-alignStart = round(0.1 * epochSize);
-alignEnd   = round(0.45 * epochSize);
-maxLag     = round(0.03 * epochSize);
-
-for i = 1:4
-    X = epochs{i};
-    sgn = epochSigns{i};
-
-    XkeepAll = [];
-
-    for pol = [-1 1]
-        Xp = X(:, sgn == pol);
-
-        if isempty(Xp) || size(Xp,2) < 3
-            continue;
-        end
-
-        ref = median(Xp, 2);
-
-        for iter = 1:3
-            X_aligned = zeros(size(Xp));
-            refWin = ref(alignStart:alignEnd);
-
-            for k = 1:size(Xp,2)
-                x = Xp(:,k);
-                xWin = x(alignStart:alignEnd);
-
-                [xc, lags] = xcorr(xWin, refWin, maxLag, 'coeff');
-                [~, idxMax] = max(abs(xc));
-                lag = lags(idxMax);
-
-                if lag > 0
-                    X_aligned(:,k) = [x(lag+1:end); zeros(lag,1)];
-                elseif lag < 0
-                    s = -lag;
-                    X_aligned(:,k) = [zeros(s,1); x(1:end-s)];
+for p = 1:length(patientFolders)
+    pID = strrep(patientFolders{p}, 'patient_', '');
+    pFolder = fullfile(basePath, patientFolders{p});
+    
+    % 1. Load Data
+    [rec, fs] = audioread(fullfile(pFolder, ['Patient_' pID '_rec.wav']));
+    info = jsondecode(fileread(fullfile(pFolder, ['Patient_' pID '_info.json'])));
+    
+    % 2. Extraction & Sub-Sample Alignment
+    types = {'A','B','C','D'};
+    epochData = cell(1,4);
+    p_ref = [];
+    for i = 1:4
+        act = audioread(fullfile(pFolder, ['Patient_' pID '_active' types{i} '.wav']));
+        starts = find(diff([0; act > 0.5]) == 1);
+        tmp = [];
+        for s = starts'
+            e = s + info.epochSize - 1;
+            if e <= length(rec)
+                seg = rec(s:e) - mean(rec(s:e));
+                if isempty(p_ref); p_ref = seg(1:100); shifted = seg;
                 else
-                    X_aligned(:,k) = x;
+                    [c_a, lags_a] = xcorr(seg(1:100), p_ref, 15, 'coeff');
+                    [~, m_idx] = max(c_a);
+                    shifted = circshift(seg, -lags_a(m_idx));
                 end
+                tmp = [tmp, shifted]; %#ok<AGROW>
             end
-
-            Xp = X_aligned;
-            ref = median(Xp, 2);
         end
-
-        % score epochs in this polarity group
-        refWin = ref(alignStart:alignEnd);
-        scores = zeros(1, size(Xp,2));
-
-        for k = 1:size(Xp,2)
-            x = Xp(:,k);
-            xWin = x(alignStart:alignEnd);
-
-            [xc, ~] = xcorr(xWin, refWin, maxLag, 'coeff');
-            scores(k) = max(abs(xc));
-        end
-
-        keep = scores >= prctile(scores, 60);   % keep top 40%
-        Xkeep = Xp(:, keep);
-
-        % bring negative group to common polarity before mixing
-        if pol == -1
-            Xkeep = -Xkeep;
-        end
-
-        XkeepAll = [XkeepAll, Xkeep]; %#ok<AGROW>
+        epochData{i} = tmp;
     end
-
-    alignedEpochs{i} = XkeepAll;
-    avgEpoch{i} = median(XkeepAll, 2);
-
-    fprintf('Type %s: final kept epochs = %d\n', types{i}, size(XkeepAll,2));
-end
-% figure;
-% histogram(epochScores{2}, 20);
-% grid on;
-% title('Epoch quality scores - Type A');
-% xlabel('Score');
-% ylabel('Count');
-% 
-% figure;
-% subplot(2,1,1)
-% plot(epochs{2}(:,1:min(20,size(epochs{1},2))));
-% title('Original epochs - Type A');
-% grid on;
-% 
-% subplot(2,1,2)
-% plot(alignedEpochs{2}(:,1:min(20,size(alignedEpochs{1},2))));
-% title('Selected aligned epochs - Type A');
-% grid on;
-
-
-
-
-% figure;
-% subplot(2,1,1)
-% plot(epochs{1}(:,1:min(20,size(epochs{1},2))));
-% title('Before alignment - first epochs of type A');
-% grid on;
-% 
-% subplot(2,1,2)
-% plot(alignedEpochs{1}(:,1:min(20,size(alignedEpochs{1},2))));
-% title('After alignment - first epochs of type A');
-% grid on;
-
-
-
-
-
-
-
-
-% -------- align the four averaged stimulus responses to each other --------
-avgAligned = avgEpoch;
-
-ref = avgEpoch{1};          % use A as reference
-crossMaxLag = 20;           % try 10, 20, 30
-
-for i = 2:4
-    x = avgEpoch{i};
-
-    [xc, lags] = xcorr(x(alignStart:alignEnd), ref(alignStart:alignEnd), ...
-                       crossMaxLag, 'coeff');
-    [~, idxMax] = max(abs(xc));
-    lag = lags(idxMax);
-
-    if lag > 0
-        avgAligned{i} = [x(lag+1:end); zeros(lag,1)];
-    elseif lag < 0
-        s = -lag;
-        avgAligned{i} = [zeros(s,1); x(1:end-s)];
-    else
-        avgAligned{i} = x;
+    
+    % 3. Nonlinear Summation
+    minE = min(cellfun(@(x) size(x,2), epochData));
+    acc = zeros(info.epochSize, 1);
+    v_sets = 0;
+    for k = 1:minE
+        quad = epochData{1}(:,k) + epochData{2}(:,k) + epochData{3}(:,k) + epochData{4}(:,k);
+        if all(isfinite(quad)); acc = acc + quad; v_sets = v_sets + 1; end
     end
-
-    fprintf('Cross-align type %s to A: lag = %d\n', types{i}, lag);
+    oae_raw = acc / max(1, v_sets);
+    
+% --- 4. Boosted Post-Processing (Time-Frequency Gating) ---
+    t = (0:info.epochSize-1)' / fs;
+    
+    % Create a Time-Frequency Gate (Narrower at the start, wider at the end)
+    % This kills early low-freq noise and late high-freq noise
+    oae_boosted = oae_raw;
+    win_env = exp(-((t-0.008).^2)/(2*0.004^2)); % Gaussian centered at 8ms
+    oae_boosted = oae_boosted .* win_env;
+    
+    % Zero-phase filtering with a tighter transition
+    bpFilt = designfilt('bandpassiir','FilterOrder',10, ...
+        'HalfPowerFrequency1',1200,'HalfPowerFrequency2',3800, 'SampleRate',fs);
+    oae_clean = filtfilt(bpFilt, oae_boosted);
+    
+    % Final Noise Floor Leveling
+    noise_est = (mean(epochData{1},2) + mean(epochData{2},2)) - ...
+                (mean(epochData{3},2) + mean(epochData{4},2));
+    oae_clean = oae_clean - (0.1 * filtfilt(bpFilt, noise_est)); % Subtract 10% of estimated noise
+    
+    % 5. Match against all templates
+    m_idx = (t > 0.004 & t < 0.016);
+    oae_crop = oae_clean(m_idx);
+    for j = 1:length(temp_names)
+        target = templates.(temp_names{j})(:);
+        target_adj = [target; zeros(max(0, length(oae_clean)-length(target)), 1)];
+        target_adj = target_adj(1:length(oae_clean));
+        target_crop = target_adj(m_idx);
+        [c, ~] = xcorr(oae_crop, target_crop, 'coeff');
+        score = max(abs(c));
+        if isnan(score); score = 0; end
+        all_scores_matrix = [all_scores_matrix; p, j, score]; %#ok<AGROW>
+    end
 end
 
-% -------- now build OAE from cross-aligned A/B/C/D averages --------
-oae_est = avgAligned{1} + avgAligned{2} + avgAligned{3} - 3*avgAligned{4};
-oae_est = oae_est(:);
-oae_est = oae_est - mean(oae_est); 
-oae_est = bandpass(oae_est, [800 4500],fs);
 
 
 
