@@ -120,3 +120,50 @@ for i = 1:size(all_scores_matrix, 1)
         u_pat = [u_pat; p_idx]; u_temp = [u_temp; t_idx]; count = count + 1;
     end
 end
+
+
+% confidence for REFERs
+for i = 1:height(final_mapping)
+    if final_mapping.Result(i) == "REFER"
+        pID_str = final_mapping.PatientID(i);
+        p_idx = find(strcmp(cellfun(@(x) strrep(x,'patient_',''), patientFolders, 'un', 0), pID_str));
+        p_rows = all_scores_matrix(all_scores_matrix(:,1) == p_idx, :);
+        final_mapping.Confidence(i) = p_rows(1,3) * 100;
+    end
+end
+
+disp('--- FINAL MISSION MAPPING ---');
+disp(sortrows(final_mapping, 'Confidence', 'descend'));
+
+% --- 6. PLOT ALL ESTIMATED OAEs (Fixed Dimensions) ---
+figure('Name', 'All Estimated OAEs', 'Color', 'w', 'Units', 'normalized', 'Position', [0.1 0.1 0.8 0.8]);
+
+for p = 1:length(patientFolders)
+    subplot(4, 3, p);
+    
+    % Get the signal for this patient
+    signal = oae_results_cell{p};
+    
+    % Re-calculate time vector for THIS specific signal length to avoid mismatch
+    % (Using the fs from the last processed patient, or store fs in the loop)
+    t_patient = (0:length(signal)-1)' / fs * 1000; 
+    
+    % Ensure t_patient and signal are the same length for plotting
+    plot_len = min(length(t_patient), length(signal));
+    
+    plot(t_patient(1:plot_len), signal(1:plot_len), 'LineWidth', 1);
+    
+    % Get the result from our mapping table for the title
+    pID_current = string(strrep(patientFolders{p}, 'patient_', ''));
+    row_idx = find(final_mapping.PatientID == pID_current);
+    
+    res = char(final_mapping.Result(row_idx));
+    conf = final_mapping.Confidence(row_idx);
+    
+    title(sprintf('ID: %s (%s)\nConf: %.1f%%', pID_current, res, conf), 'FontSize', 8);
+    
+    grid on; xlim([0 20]);
+    if p > 9; xlabel('Time (ms)'); end
+    if mod(p, 3) == 1; ylabel('Amp'); end
+end
+sgtitle('TEOAE Screening Results - All Patients', 'FontSize', 14, 'FontWeight', 'bold');
