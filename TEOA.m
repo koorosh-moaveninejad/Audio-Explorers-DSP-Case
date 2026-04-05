@@ -78,7 +78,7 @@ for p = 1:length(patientFolders)
     noise_est = (mean(epochData{1},2) + mean(epochData{2},2)) - ...
                 (mean(epochData{3},2) + mean(epochData{4},2));
     oae_clean = oae_clean - (0.1 * filtfilt(bpFilt, noise_est)); % Subtract 10% of estimated noise
-    
+    oae_results_cell{p} = oae_clean;
     % 5. Match against all templates
     m_idx = (t > 0.004 & t < 0.016);
     oae_crop = oae_clean(m_idx);
