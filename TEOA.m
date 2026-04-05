@@ -1,17 +1,20 @@
 clear; clc;
 
-patient = '194151';
+% --- Configuration & Paths ---
 basePath = '/Users/kourosh/Desktop/University/Self Study/Audio-Explorers20206/Diagnostics DSP/Patient Data';
-patientFolder = fullfile(basePath, ['patient_' patient]);
+templatePath = fullfile(basePath, 'lostOaes.json');
 
-[rec, fs] = audioread(fullfile(patientFolder, ['Patient_' patient '_rec.wav']));
+% Load Templates and Folders
+templates = jsondecode(fileread(templatePath));
+temp_names = fieldnames(templates);
+dirInfo = dir(fullfile(basePath, 'patient_*'));
+patientFolders = {dirInfo.name};
 
+% Pre-allocate storage
+all_scores_matrix = []; % [PatientIdx, TemplateIdx, Score]
+oae_results_cell = cell(length(patientFolders), 1); % Store waveforms for plotting
 
-active  = cell(1,4);
-trigger = cell(1,4);
-types = {'A','B','C','D'};
-
-
+fprintf('Processing %d patients... Please wait.\n', length(patientFolders));
 
 
 
