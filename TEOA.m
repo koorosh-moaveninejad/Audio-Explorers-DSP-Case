@@ -167,3 +167,93 @@ for p = 1:length(patientFolders)
     if mod(p, 3) == 1; ylabel('Amp'); end
 end
 sgtitle('TEOAE Screening Results - All Patients', 'FontSize', 14, 'FontWeight', 'bold');
+
+
+
+
+
+% --- 7. PLOT ESTIMATED OAE VS MATCHED TEMPLATE ---
+figure('Name', 'Estimated vs Matched Template OAEs', ...
+    'Color', 'w', 'Units', 'normalized', 'Position', [0.05 0.05 0.9 0.85]);
+
+for p = 1:length(patientFolders)
+    subplot(4, 3, p);
+
+    % Patient ID
+    pID_current = string(strrep(patientFolders{p}, 'patient_', ''));
+    row_idx = find(final_mapping.PatientID == pID_current);
+
+    % Estimated OAE
+    est_full = oae_results_cell{p};
+    t_est = (0:length(est_full)-1)' / fs;
+
+    % Use same comparison window as matching stage
+    m_idx_est = (t_est > 0.004 & t_est < 0.016);
+    est_crop = est_full(m_idx_est);
+
+    % Normalize estimated signal
+    if norm(est_crop) > 0
+        est_norm = est_crop / norm(est_crop);
+    else
+        est_norm = est_crop;
+    end
+
+    % Default template placeholder
+    matched_norm = zeros(size(est_norm));
+    template_name = char(final_mapping.Template(row_idx));
+
+    if final_mapping.Template(row_idx) ~= "N/A"
+        % Load matched template
+        target = templates.(template_name)(:);
+
+        % Pad / trim template to same full length as estimated OAE
+        target_adj = [target; zeros(max(0, length(est_full)-length(target)), 1)];
+        target_adj = target_adj(1:length(est_full));
+
+        % Crop same window
+        target_crop = target_adj(m_idx_est);
+
+        % Normalize template
+        if norm(target_crop) > 0
+            target_norm = target_crop / norm(target_crop);
+        else
+            target_norm = target_crop;
+        end
+
+        % Align template to estimated signal using best lag
+        [c_align, lags_align] = xcorr(est_norm, target_norm, 'coeff');
+        [~, best_idx] = max(abs(c_align));
+        best_lag = lags_align(best_idx);
+
+        matched_norm = circshift(target_norm, best_lag);
+    end
+
+    % Time axis for cropped region in ms
+    t_crop_ms = t_est(m_idx_est) * 1000;
+
+    % Plot both
+    plot(t_crop_ms, est_norm, 'LineWidth', 1.5); hold on;
+    plot(t_crop_ms, matched_norm, '--', 'LineWidth', 1.5);
+    hold off;
+
+    grid on;
+    xlim([4 16]);
+
+    res = char(final_mapping.Result(row_idx));
+    conf = final_mapping.Confidence(row_idx);
+
+    title(sprintf('ID: %s (%s)\n%s | Conf: %.1f%%', ...
+        pID_current, res, template_name, conf), 'FontSize', 8);
+
+    if p > 9
+        xlabel('Time (ms)');
+    end
+    if mod(p, 3) == 1
+        ylabel('Normalized Amp');
+    end
+
+    legend('Estimated', 'Matched Template', 'FontSize', 7, 'Location', 'best');
+end
+
+sgtitle('Estimated OAEs vs Matched Templates', 'FontSize', 14, 'FontWeight', 'bold');
+
