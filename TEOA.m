@@ -88,8 +88,8 @@ for p = 1:length(patientFolders)
         target_adj = target_adj(1:length(oae_clean));
         target_crop = target_adj(m_idx);
         [c, ~] = xcorr(oae_crop, target_crop, 'coeff');
-        score = max(abs(c));
-        if isnan(score); score = 0; end
+        score = max(c); 
+        if isnan(score) || score < 0, score = 0; end
         all_scores_matrix = [all_scores_matrix; p, j, score]; %#ok<AGROW>
     end
 end
@@ -222,7 +222,7 @@ for p = 1:length(patientFolders)
 
         % Align template to estimated signal using best lag
         [c_align, lags_align] = xcorr(est_norm, target_norm, 'coeff');
-        [~, best_idx] = max(abs(c_align));
+        [~, best_idx] = max(c_align);
         best_lag = lags_align(best_idx);
 
         matched_norm = circshift(target_norm, best_lag);
