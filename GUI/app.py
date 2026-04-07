@@ -6,7 +6,6 @@ from src.dsp_engine import run_analysis
 from src.visualizer import (
     line_fig,
     match_fig,
-    scatter_quality_fig,
     grid_waveforms_fig,
     dataframe_download_button,
 )
@@ -92,21 +91,18 @@ if bundle is None:
     )
 else:
     final_df = bundle["final_df"]
-    existence_df = bundle["existence_df"]
     patient_results = bundle["patient_results"]
     scores_df = bundle["scores_df"]
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Patients", len(patient_results))
     c2.metric("PASS (template mapping)", int((final_df["Result"] == "PASS").sum()))
-    c3.metric("OAE exists (rule)", int(existence_df["OAE_Exists"].sum()))
-    c4.metric("Templates", len(bundle["templates"]))
+    c3.metric("Templates", len(bundle["templates"]))
 
     tabs = st.tabs([
         "Overview",
         "Patient explorer",
         "Template matches",
-        "Quality metrics",
         "Waveform gallery",
         "Downloads",
     ])
@@ -114,19 +110,18 @@ else:
     with tabs[0]:
         st.markdown("### Final mission mapping")
         st.dataframe(final_df, use_container_width=True, hide_index=True)
-        st.markdown("### Template-independent OAE existence check")
-        st.dataframe(existence_df, use_container_width=True, hide_index=True)
+        # st.markdown("### Template-independent OAE existence check")
+        # st.dataframe(existence_df, use_container_width=True, hide_index=True)
 
     with tabs[1]:
         patient_ids = [r["PatientID"] for r in patient_results]
         selected_pid = st.selectbox("Select patient", patient_ids)
         res = next(r for r in patient_results if r["PatientID"] == selected_pid)
 
-        a, b, c = st.columns(3)
+        a, b = st.columns(2)
         a.metric("Best template", res["best_template"])
-        b.metric("SNR (dB)", f"{res['snr_db']:.2f}")
-        c.metric("Repeat corr", f"{res['repeat_corr']:.2f}")
-        st.caption(f"Template-independent OAE exists: {'Yes' if res['oae_exists_rule'] else 'No'}")
+        b.metric("Repeat corr", f"{res['repeat_corr']:.2f}")
+        # st.caption(f"Template-independent OAE exists: {'Yes' if res['oae_exists_rule'] else 'No'}")
 
         st.plotly_chart(
             line_fig(res["t_ms"], res["oae_clean"], f"Patient {selected_pid} · Estimated OAE", name="Estimated OAE"),
@@ -141,19 +136,19 @@ else:
         patient_scores = scores_df[scores_df["PatientID"] == selected_pid].sort_values("Score", ascending=False)
         st.dataframe(patient_scores, use_container_width=True, hide_index=True)
 
-    with tabs[3]:
-        st.plotly_chart(scatter_quality_fig(existence_df), use_container_width=True)
-        st.markdown("### Quality table")
-        st.dataframe(existence_df, use_container_width=True, hide_index=True)
+    # with tabs[3]:
+    #     st.plotly_chart(scatter_quality_fig(existence_df), use_container_width=True)
+    #     st.markdown("### Quality table")
+    #     st.dataframe(existence_df, use_container_width=True, hide_index=True)
 
-    with tabs[4]:
+    with tabs[3]:
         st.plotly_chart(grid_waveforms_fig(patient_results), use_container_width=True)
 
-    with tabs[5]:
+    with tabs[4]:
         col1, col2 = st.columns(2)
         with col1:
             dataframe_download_button(final_df, "final_mapping")
-            dataframe_download_button(existence_df, "oae_existence")
+            # dataframe_download_button(existence_df, "oae_existence")
         with col2:
             dataframe_download_button(scores_df, "template_scores")
 
@@ -161,7 +156,6 @@ else:
         summary_json = json.dumps(
             {
                 "final_mapping": final_df.to_dict(orient="records"),
-                "existence": existence_df.to_dict(orient="records"),
             },
             indent=2,
         )
