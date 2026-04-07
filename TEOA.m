@@ -91,7 +91,7 @@ for p = 1:length(patientFolders)
     oae_raw1 = acc1 / max(1, v_sets1);
     oae_raw2 = acc2 / max(1, v_sets2);
     
-   % 4. Post-Processing
+    % 4. Post-Processing
     t = (0:info.epochSize-1)' / fs;
     
     % Time gate
@@ -137,22 +137,29 @@ for p = 1:length(patientFolders)
                 (mean(epochData{3},2) + mean(epochData{4},2));
     oae_clean = oae_clean - (0.1 * filtfilt(bpFilt, noise_est)); % Subtract 10% of estimated noise
     oae_results_cell{p} = oae_clean;
-    
-    % 5. Match against all templates
-    m_idx = (t > 0.004 & t < 0.016);
-    oae_crop = oae_clean(m_idx);
-    for j = 1:length(temp_names)
-        target = templates.(temp_names{j})(:);
-        target_adj = [target; zeros(max(0, length(oae_clean)-length(target)), 1)];
-        target_adj = target_adj(1:length(oae_clean));
-        target_crop = target_adj(m_idx);
-        [c, ~] = xcorr(oae_crop, target_crop, 'coeff');
-        score = max(c); 
-        if isnan(score) || score < 0, score = 0; end
-        all_scores_matrix = [all_scores_matrix; p, j, score]; %#ok<AGROW>
-    end
-end
 
+    % 5. Quality Metrics: SNR + reproducibility
+    resp_idx  = (t > 0.004 & t < 0.016);   % response window
+    noise_idx = (t > 0.017 & t < 0.020);   % late noise window
+    
+    resp_rms = rms(oae_clean(resp_idx));
+    noise_rms = rms(oae_clean(noise_idx));
+    snr_db = 20 * log10(resp_rms / max(noise_rms, eps));
+    snr_values(p) = snr_db;
+    
+    x1 = oae_clean1(resp_idx);
+    x2 = oae_clean2(resp_idx);
+    
+    if norm(x1) > 0 && norm(x2) > 0
+        repeat_corr = corr(x1, x2);
+    else
+        repeat_corr = 0;
+    end
+    
+    if isnan(repeat_corr)
+        repeat_corr = 0;
+    end
+    repeat_corr_values(p) = repeat_corr;
 
 
 % ---  MAPPING LOGIC ---
