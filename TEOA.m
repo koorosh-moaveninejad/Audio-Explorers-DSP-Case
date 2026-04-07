@@ -234,125 +234,141 @@ end
 disp('--- FINAL MISSION MAPPING ---');
 disp(sortrows(final_mapping, 'Confidence', 'descend'));
 
-% --- 6. PLOT ALL ESTIMATED OAEs (Fixed Dimensions) ---
-figure('Name', 'All Estimated OAEs', 'Color', 'w', 'Units', 'normalized', 'Position', [0.1 0.1 0.8 0.8]);
+% OAE existence rule 
+
+oae_exists_rule = (abs(snr_values) > 3) & (repeat_corr_values > 0.35);
+
+disp('--- TEMPLATE-INDEPENDENT OAE EXISTENCE CHECK ---');
+existence_table = table( ...
+    string(cellfun(@(x) strrep(x,'patient_',''), patientFolders, 'UniformOutput', false))', ...
+    snr_values, repeat_corr_values, oae_exists_rule, ...
+    'VariableNames', {'PatientID','SNR_dB','RepeatCorr','OAE_Exists'});
+disp(sortrows(existence_table, 'SNR_dB', 'descend'));
+
+% 8. PLOT ALL ESTIMATED OAEs 
+figure('Name', 'All Estimated OAEs', ...
+    'Color', 'w', 'Units', 'normalized', 'Position', [0.1 0.1 0.8 0.8]);
 
 for p = 1:length(patientFolders)
     subplot(4, 3, p);
     
-    % Get the signal for this patient
     signal = oae_results_cell{p};
+    t_patient = (0:length(signal)-1)' / fs_values(p) * 1000;
     
-    % Re-calculate time vector for THIS specific signal length to avoid mismatch
-    % (Using the fs from the last processed patient, or store fs in the loop)
-    t_patient = (0:length(signal)-1)' / fs * 1000; 
-    
-    % Ensure t_patient and signal are the same length for plotting
     plot_len = min(length(t_patient), length(signal));
-    
     plot(t_patient(1:plot_len), signal(1:plot_len), 'LineWidth', 1);
     
-    % Get the result from our mapping table for the title
     pID_current = string(strrep(patientFolders{p}, 'patient_', ''));
     row_idx = find(final_mapping.PatientID == pID_current);
     
     res = char(final_mapping.Result(row_idx));
     conf = final_mapping.Confidence(row_idx);
+    snr_here = final_mapping.SNR_dB(row_idx);
+    rep_here = final_mapping.RepeatCorr(row_idx);
     
-    title(sprintf('ID: %s (%s)\nConf: %.1f%%', pID_current, res, conf), 'FontSize', 8);
+    title(sprintf('ID: %s (%s)\nConf: %.1f%% | SNR: %.2f dB | R: %.2f', ...
+        pID_current, res, conf, snr_here, rep_here), 'FontSize', 8);
     
-    grid on; xlim([0 20]);
-    if p > 9; xlabel('Time (ms)'); end
-    if mod(p, 3) == 1; ylabel('Amp'); end
+    grid on;
+    xlim([0 20]);
+    
+    if p > 9
+        xlabel('Time (ms)');
+    end
+    if mod(p,3) == 1
+        ylabel('Amp');
+    end
 end
+
 sgtitle('TEOAE Screening Results - All Patients', 'FontSize', 14, 'FontWeight', 'bold');
 
-
-
-
-
-% --- 7. PLOT ESTIMATED OAE VS MATCHED TEMPLATE ---
+% 9. PLOT ESTIMATED OAE VS MATCHED TEMPLATE 
 figure('Name', 'Estimated vs Matched Template OAEs', ...
     'Color', 'w', 'Units', 'normalized', 'Position', [0.05 0.05 0.9 0.85]);
 
 for p = 1:length(patientFolders)
     subplot(4, 3, p);
-
-    % Patient ID
+    
     pID_current = string(strrep(patientFolders{p}, 'patient_', ''));
     row_idx = find(final_mapping.PatientID == pID_current);
-
-    % Estimated OAE
+    
     est_full = oae_results_cell{p};
-    t_est = (0:length(est_full)-1)' / fs;
-
-    % Use same comparison window as matching stage
+    t_est = (0:length(est_full)-1)' / fs_values(p);
+    
     m_idx_est = (t_est > 0.004 & t_est < 0.016);
     est_crop = est_full(m_idx_est);
-
-    % Normalize estimated signal
+    
     if norm(est_crop) > 0
         est_norm = est_crop / norm(est_crop);
     else
         est_norm = est_crop;
     end
-
-    % Default template placeholder
+    
     matched_norm = zeros(size(est_norm));
     template_name = char(final_mapping.Template(row_idx));
-
+    
     if final_mapping.Template(row_idx) ~= "N/A"
-        % Load matched template
         target = templates.(template_name)(:);
-
-        % Pad / trim template to same full length as estimated OAE
+        
         target_adj = [target; zeros(max(0, length(est_full)-length(target)), 1)];
         target_adj = target_adj(1:length(est_full));
-
-        % Crop same window
         target_crop = target_adj(m_idx_est);
-
-        % Normalize template
+        
         if norm(target_crop) > 0
             target_norm = target_crop / norm(target_crop);
         else
             target_norm = target_crop;
         end
-
-        % Align template to estimated signal using best lag
+        
         [c_align, lags_align] = xcorr(est_norm, target_norm, 'coeff');
         [~, best_idx] = max(c_align);
         best_lag = lags_align(best_idx);
-
+        
         matched_norm = circshift(target_norm, best_lag);
     end
-
-    % Time axis for cropped region in ms
+    
     t_crop_ms = t_est(m_idx_est) * 1000;
-
-    % Plot both
+    
     plot(t_crop_ms, est_norm, 'LineWidth', 1.5); hold on;
     plot(t_crop_ms, matched_norm, '--', 'LineWidth', 1.5);
     hold off;
-
+    
     grid on;
     xlim([4 16]);
-
+    
     res = char(final_mapping.Result(row_idx));
     conf = final_mapping.Confidence(row_idx);
-
-    title(sprintf('ID: %s (%s)\n%s | Conf: %.1f%%', ...
-        pID_current, res, template_name, conf), 'FontSize', 8);
-
+    snr_here = final_mapping.SNR_dB(row_idx);
+    rep_here = final_mapping.RepeatCorr(row_idx);
+    
+    title(sprintf('ID: %s (%s)\n%s | Conf: %.1f%% | SNR: %.2f | R: %.2f', ...
+        pID_current, res, template_name, conf, snr_here, rep_here), 'FontSize', 8);
+    
     if p > 9
         xlabel('Time (ms)');
     end
-    if mod(p, 3) == 1
+    if mod(p,3) == 1
         ylabel('Normalized Amp');
     end
-
+    
     legend('Estimated', 'Matched Template', 'FontSize', 7, 'Location', 'best');
 end
 
 sgtitle('Estimated OAEs vs Matched Templates', 'FontSize', 14, 'FontWeight', 'bold');
 
+% --- 10. PLOT SNR VS REPRODUCIBILITY ---
+figure('Name', 'SNR vs Reproducibility', 'Color', 'w');
+
+scatter(snr_values, repeat_corr_values, 80, 'filled');
+grid on;
+xlabel('SNR (dB)');
+ylabel('Repeatability Correlation');
+
+for p = 1:length(patientFolders)
+    pID_current = strrep(patientFolders{p}, 'patient_', '');
+    text(snr_values(p) + 0.05, repeat_corr_values(p), pID_current, 'FontSize', 8);
+end
+
+title('Patient Quality Metrics: SNR vs Split-Half Reproducibility');
+xline(3, '--');
+yline(0.35, '--');
