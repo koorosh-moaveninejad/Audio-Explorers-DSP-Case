@@ -162,6 +162,27 @@ for p = 1:length(patientFolders)
     repeat_corr_values(p) = repeat_corr;
 
 
+    % 6. Match against all templates
+    oae_crop = oae_clean(resp_idx);
+    
+    for j = 1:length(temp_names)
+        target = templates.(temp_names{j})(:);
+        
+        target_adj = [target; zeros(max(0, length(oae_clean)-length(target)), 1)];
+        target_adj = target_adj(1:length(oae_clean));
+        target_crop = target_adj(resp_idx);
+        
+        [c, ~] = xcorr(oae_crop, target_crop, 'coeff');
+        score = max(c);
+        
+        if isnan(score) || score < 0
+            score = 0;
+        end
+        
+        all_scores_matrix = [all_scores_matrix; p, j, score]; %#ok<AGROW>
+    end
+end
+
 % ---  MAPPING LOGIC ---
 all_scores_matrix = sortrows(all_scores_matrix, -3); 
 final_mapping = table('Size', [length(patientFolders) 4], ...
