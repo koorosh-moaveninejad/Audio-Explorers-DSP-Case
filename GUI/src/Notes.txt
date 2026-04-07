@@ -1,0 +1,5 @@
+- `app.py`  contains only UI orchestration.
+- `dsp_engine.py` contains signal processing and analysis logic.
+- `io_utils.py` handles file loading and ZIP extraction.
+- `visualizer.py` contains only plotting and download helpers.
+- `constants.py` centralizes thresholds, theme text, and CSS.
