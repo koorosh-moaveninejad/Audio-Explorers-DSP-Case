@@ -91,14 +91,41 @@ for p = 1:length(patientFolders)
     oae_raw1 = acc1 / max(1, v_sets1);
     oae_raw2 = acc2 / max(1, v_sets2);
     
-    % 4.Post-Processing ---
+   % 4. Post-Processing
     t = (0:info.epochSize-1)' / fs;
     
-    % Create a Time-Frequency Gate (Narrower at the start, wider at the end)
-    % This kills early low-freq noise and late high-freq noise
-    oae_boosted = oae_raw;
-    win_env = exp(-((t-0.008).^2)/(2*0.004^2)); % Gaussian centered at 8ms
-    oae_boosted = oae_boosted .* win_env;
+    % Time gate
+    win_env = exp(-((t-0.008).^2) / (2*0.004^2));  % centered at 8 ms
+    
+    % Bandpass
+    bpFilt = designfilt('bandpassiir', 'FilterOrder', 10, ...
+        'HalfPowerFrequency1', 1200, ...
+        'HalfPowerFrequency2', 3800, ...
+        'SampleRate', fs);
+    
+    % Full estimate
+    oae_boosted = oae_raw .* win_env;
+    oae_clean = filtfilt(bpFilt, oae_boosted);
+    
+    % Split-half estimate 1
+    oae_boosted1 = oae_raw1 .* win_env;
+    oae_clean1 = filtfilt(bpFilt, oae_boosted1);
+    
+    % Split-half estimate 2
+    oae_boosted2 = oae_raw2 .* win_env;
+    oae_clean2 = filtfilt(bpFilt, oae_boosted2);
+    
+    % Noise estimate
+    noise_est = (mean(epochData{1},2) + mean(epochData{2},2)) - ...
+                (mean(epochData{3},2) + mean(epochData{4},2));
+    noise_clean = filtfilt(bpFilt, noise_est);
+    
+    % Final leveling
+    oae_clean  = oae_clean  - (0.1 * noise_clean);
+    oae_clean1 = oae_clean1 - (0.1 * noise_clean);
+    oae_clean2 = oae_clean2 - (0.1 * noise_clean);
+    
+    oae_results_cell{p} = oae_clean;
     
     % Zero-phase filtering with a tighter transition
     bpFilt = designfilt('bandpassiir','FilterOrder',10, ...
@@ -110,6 +137,7 @@ for p = 1:length(patientFolders)
                 (mean(epochData{3},2) + mean(epochData{4},2));
     oae_clean = oae_clean - (0.1 * filtfilt(bpFilt, noise_est)); % Subtract 10% of estimated noise
     oae_results_cell{p} = oae_clean;
+    
     % 5. Match against all templates
     m_idx = (t > 0.004 & t < 0.016);
     oae_crop = oae_clean(m_idx);
