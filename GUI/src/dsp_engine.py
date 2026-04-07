@@ -249,36 +249,46 @@ def run_analysis(root_dir, templates, patient_dirs):
                 "Result": "REFER",
                 "Template": "N/A",
                 "Confidence": 0.0,
-                # "SNR_dB": r["snr_db"],
                 "RepeatCorr": r["repeat_corr"],
-                # "OAE_Exists": r["oae_exists_rule"],
             }
         )
     final_df = pd.DataFrame(base_rows)
 
-    used_patients = set()
+    # Step 1: choose PASS patients by RepeatCorr
+    rep_sorted = sorted(patient_results, key=lambda x: x["repeat_corr"], reverse=True)
+    pass_budget = min(8, len(patient_results))
+    pass_ids = [r["PatientID"] for r in rep_sorted[:pass_budget]]
+
+    # Step 2: assign templates only for PASS patients
     used_templates = set()
-    assigned = 0
-    pass_budget = min(8, len(patient_results), len(templates))
 
-    for _, row in scores_df.iterrows():
-        pid = row["PatientID"]
-        tname = row["Template"]
-        score = float(row["Score"])
-        if pid not in used_patients and tname not in used_templates and assigned < pass_budget:
+    for pid in pass_ids:
+        patient_template_rows = scores_df[scores_df["PatientID"] == pid].sort_values("Score", ascending=False)
+
+        assigned = False
+        for _, row in patient_template_rows.iterrows():
+            tname = row["Template"]
+            score = float(row["Score"])
+
+            if tname not in used_templates:
+                idx = final_df.index[final_df["PatientID"] == pid][0]
+                final_df.loc[idx, ["Result", "Template", "Confidence"]] = ["PASS", tname, score * 100.0]
+                used_templates.add(tname)
+                assigned = True
+                break
+
+        if not assigned:
             idx = final_df.index[final_df["PatientID"] == pid][0]
-            final_df.loc[idx, ["Result", "Template", "Confidence"]] = ["PASS", tname, score * 100.0]
-            used_patients.add(pid)
-            used_templates.add(tname)
-            assigned += 1
+            best_score = float(patient_template_rows.iloc[0]["Score"]) if not patient_template_rows.empty else 0.0
+            final_df.loc[idx, ["Result", "Template", "Confidence"]] = ["PASS", "N/A", best_score * 100.0]
 
-    for idx in final_df.index[final_df["Result"] == "REFER"]:
-        pid = final_df.loc[idx, "PatientID"]
-        rows = scores_df[scores_df["PatientID"] == pid]
-        if not rows.empty:
-            final_df.loc[idx, "Confidence"] = float(rows.iloc[0]["Score"]) * 100.0
+        for idx in final_df.index[final_df["Result"] == "REFER"]:
+            pid = final_df.loc[idx, "PatientID"]
+            rows = scores_df[scores_df["PatientID"] == pid]
+            if not rows.empty:
+                final_df.loc[idx, "Confidence"] = float(rows.iloc[0]["Score"]) * 100.0
 
-    final_df = final_df.sort_values("Confidence", ascending=False).reset_index(drop=True)
+        final_df = final_df.sort_values("Confidence", ascending=False).reset_index(drop=True)
 
     return {
         "patient_results": patient_results,
