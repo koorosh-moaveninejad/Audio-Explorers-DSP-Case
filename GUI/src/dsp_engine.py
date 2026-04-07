@@ -158,7 +158,7 @@ def process_patient_folder(patient_dir, templates):
     oae_clean1 = oae_clean1 - 0.1 * noise_clean
     oae_clean2 = oae_clean2 - 0.1 * noise_clean
 
-    # resp_idx = (t > DEFAULT_RESPONSE_START) & (t < DEFAULT_RESPONSE_END)
+    resp_idx = (t > DEFAULT_RESPONSE_START) & (t < DEFAULT_RESPONSE_END)
     # noise_idx = (t > DEFAULT_NOISE_START) & (t < DEFAULT_NOISE_END)
 
     # resp_rms = rms(oae_clean[resp_idx])
