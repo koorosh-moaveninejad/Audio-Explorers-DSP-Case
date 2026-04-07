@@ -1,6 +1,6 @@
 clear; clc;
 
-% --- Configuration & Paths ---
+% Configuration & Paths
 basePath = '/Users/kourosh/Desktop/University/Self Study/Audio-Explorers20206/Diagnostics DSP/Patient Data';
 templatePath = fullfile(basePath, 'lostOaes.json');
 
@@ -183,31 +183,43 @@ for p = 1:length(patientFolders)
     end
 end
 
-% ---  MAPPING LOGIC ---
-all_scores_matrix = sortrows(all_scores_matrix, -3); 
-final_mapping = table('Size', [length(patientFolders) 4], ...
-    'VariableTypes', {'string', 'string', 'string', 'double'}, ...
-    'VariableNames', {'PatientID', 'Result', 'Template', 'Confidence'});
+% 7. MAPPING LOGIC 
+all_scores_matrix = sortrows(all_scores_matrix, -3);
+final_mapping = table('Size', [length(patientFolders) 6], ...
+    'VariableTypes', {'string', 'string', 'string', 'double', 'double', 'double'}, ...
+    'VariableNames', {'PatientID', 'Result', 'Template', 'Confidence', 'SNR_dB', 'RepeatCorr'});
 
 for i = 1:length(patientFolders)
     final_mapping.PatientID(i) = string(strrep(patientFolders{i}, 'patient_', ''));
     final_mapping.Result(i) = "REFER";
     final_mapping.Template(i) = "N/A";
+    final_mapping.Confidence(i) = 0;
+    final_mapping.SNR_dB(i) = snr_values(i);
+    final_mapping.RepeatCorr(i) = repeat_corr_values(i);
 end
 
-u_pat = []; u_temp = []; count = 0;
+u_pat = [];
+u_temp = [];
+count = 0;
+
 for i = 1:size(all_scores_matrix, 1)
-    p_idx = all_scores_matrix(i, 1); t_idx = all_scores_matrix(i, 2); sc = all_scores_matrix(i, 3);
+    p_idx = all_scores_matrix(i, 1);
+    t_idx = all_scores_matrix(i, 2);
+    sc    = all_scores_matrix(i, 3);
+    
     if ~any(u_pat == p_idx) && ~any(u_temp == t_idx) && count < 8
         pID = string(strrep(patientFolders{p_idx}, 'patient_', ''));
         r_idx = find(final_mapping.PatientID == pID);
+        
         final_mapping.Result(r_idx) = "PASS";
         final_mapping.Template(r_idx) = string(temp_names{t_idx});
         final_mapping.Confidence(r_idx) = sc * 100;
-        u_pat = [u_pat; p_idx]; u_temp = [u_temp; t_idx]; count = count + 1;
+        
+        u_pat = [u_pat; p_idx]; %#ok<AGROW>
+        u_temp = [u_temp; t_idx]; %#ok<AGROW>
+        count = count + 1;
     end
 end
-
 
 % confidence for REFERs
 for i = 1:height(final_mapping)
