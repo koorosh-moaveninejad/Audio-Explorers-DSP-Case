@@ -183,67 +183,94 @@ for p = 1:length(patientFolders)
     end
 end
 
-% 7. MAPPING LOGIC 
+% 7. MAPPING LOGIC BASED ON REPEAT CORRELATION
 all_scores_matrix = sortrows(all_scores_matrix, -3);
-final_mapping = table('Size', [length(patientFolders) 6], ...
-    'VariableTypes', {'string', 'string', 'string', 'double', 'double', 'double'}, ...
-    'VariableNames', {'PatientID', 'Result', 'Template', 'Confidence', 'SNR_dB', 'RepeatCorr'});
+
+final_mapping = table('Size', [length(patientFolders) 5], ...
+    'VariableTypes', {'string', 'string', 'string', 'double', 'double'}, ...
+    'VariableNames', {'PatientID', 'Result', 'Template', 'Confidence', 'RepeatCorr'});
 
 for i = 1:length(patientFolders)
     final_mapping.PatientID(i) = string(strrep(patientFolders{i}, 'patient_', ''));
     final_mapping.Result(i) = "REFER";
     final_mapping.Template(i) = "N/A";
     final_mapping.Confidence(i) = 0;
-    final_mapping.SNR_dB(i) = snr_values(i);
     final_mapping.RepeatCorr(i) = repeat_corr_values(i);
 end
 
-u_pat = [];
-u_temp = [];
-count = 0;
+% Step 1: choose PASS patients by RepeatCorr
+[~, rep_order] = sort(repeat_corr_values, 'descend');
+pass_count = min(8, length(patientFolders));   % choose top 8 by RepeatCorr
+pass_patients = rep_order(1:pass_count);
 
-for i = 1:size(all_scores_matrix, 1)
-    p_idx = all_scores_matrix(i, 1);
-    t_idx = all_scores_matrix(i, 2);
-    sc    = all_scores_matrix(i, 3);
-    
-    if ~any(u_pat == p_idx) && ~any(u_temp == t_idx) && count < 8
+% Step 2: assign templates only among PASS patients
+used_templates = [];
+
+for n = 1:length(pass_patients)
+    p_idx = pass_patients(n);
+
+    % get all template matches for this patient
+    p_rows = all_scores_matrix(all_scores_matrix(:,1) == p_idx, :);
+
+    assigned = false;
+    for r = 1:size(p_rows,1)
+        t_idx = p_rows(r,2);
+        sc    = p_rows(r,3);
+
+        if ~any(used_templates == t_idx)
+            pID = string(strrep(patientFolders{p_idx}, 'patient_', ''));
+            row_idx = find(final_mapping.PatientID == pID);
+
+            final_mapping.Result(row_idx) = "PASS";
+            final_mapping.Template(row_idx) = string(temp_names{t_idx});
+            final_mapping.Confidence(row_idx) = sc * 100;
+
+            used_templates = [used_templates; t_idx]; %#ok<AGROW>
+            assigned = true;
+            break;
+        end
+    end
+
+    % if all templates already used, still keep as PASS but no template
+    if ~assigned
         pID = string(strrep(patientFolders{p_idx}, 'patient_', ''));
-        r_idx = find(final_mapping.PatientID == pID);
-        
-        final_mapping.Result(r_idx) = "PASS";
-        final_mapping.Template(r_idx) = string(temp_names{t_idx});
-        final_mapping.Confidence(r_idx) = sc * 100;
-        
-        u_pat = [u_pat; p_idx]; %#ok<AGROW>
-        u_temp = [u_temp; t_idx]; %#ok<AGROW>
-        count = count + 1;
+        row_idx = find(final_mapping.PatientID == pID);
+
+        final_mapping.Result(row_idx) = "PASS";
+        final_mapping.Template(row_idx) = "N/A";
+
+        if ~isempty(p_rows)
+            final_mapping.Confidence(row_idx) = p_rows(1,3) * 100;
+        end
     end
 end
 
-% Confidence for REFERs
+% Step 3: REFER patients keep their best template score only as confidence
 for i = 1:height(final_mapping)
     if final_mapping.Result(i) == "REFER"
         pID_str = final_mapping.PatientID(i);
         p_idx = find(strcmp(cellfun(@(x) strrep(x,'patient_',''), patientFolders, 'UniformOutput', false), pID_str));
         p_rows = all_scores_matrix(all_scores_matrix(:,1) == p_idx, :);
-        final_mapping.Confidence(i) = p_rows(1,3) * 100;
+
+        if ~isempty(p_rows)
+            final_mapping.Confidence(i) = p_rows(1,3) * 100;
+        end
     end
 end
 
-disp('--- FINAL MISSION MAPPING ---');
-disp(sortrows(final_mapping, 'Confidence', 'descend'));
-
 % OAE existence rule 
 
-oae_exists_rule = (abs(snr_values) > 3) & (repeat_corr_values > 0.35);
+[~, rep_order] = sort(repeat_corr_values, 'descend');
+oae_exists_rule = false(length(repeat_corr_values),1);
+oae_exists_rule(rep_order(1:min(8,end))) = true;
 
 disp('--- TEMPLATE-INDEPENDENT OAE EXISTENCE CHECK ---');
 existence_table = table( ...
     string(cellfun(@(x) strrep(x,'patient_',''), patientFolders, 'UniformOutput', false))', ...
-    snr_values, repeat_corr_values, oae_exists_rule, ...
-    'VariableNames', {'PatientID','SNR_dB','RepeatCorr','OAE_Exists'});
-disp(sortrows(existence_table, 'SNR_dB', 'descend'));
+    repeat_corr_values, oae_exists_rule, ...
+    'VariableNames', {'PatientID','RepeatCorr','OAE_Exists'});
+
+disp(sortrows(existence_table, 'RepeatCorr', 'descend'));
 
 % 8. PLOT ALL ESTIMATED OAEs 
 figure('Name', 'All Estimated OAEs', ...
@@ -263,11 +290,11 @@ for p = 1:length(patientFolders)
     
     res = char(final_mapping.Result(row_idx));
     conf = final_mapping.Confidence(row_idx);
-    snr_here = final_mapping.SNR_dB(row_idx);
+    % snr_here = final_mapping.SNR_dB(row_idx);
     rep_here = final_mapping.RepeatCorr(row_idx);
     
-    title(sprintf('ID: %s (%s)\nConf: %.1f%% | SNR: %.2f dB | R: %.2f', ...
-        pID_current, res, conf, snr_here, rep_here), 'FontSize', 8);
+    title(sprintf('ID: %s (%s)\nConf: %.1f%% | R: %.2f', ...
+        pID_current, res, conf, rep_here), 'FontSize', 8);
     
     grid on;
     xlim([0 20]);
@@ -338,11 +365,11 @@ for p = 1:length(patientFolders)
     
     res = char(final_mapping.Result(row_idx));
     conf = final_mapping.Confidence(row_idx);
-    snr_here = final_mapping.SNR_dB(row_idx);
+    % snr_here = final_mapping.SNR_dB(row_idx);
     rep_here = final_mapping.RepeatCorr(row_idx);
     
-    title(sprintf('ID: %s (%s)\n%s | Conf: %.1f%% | SNR: %.2f | R: %.2f', ...
-        pID_current, res, template_name, conf, snr_here, rep_here), 'FontSize', 8);
+    title(sprintf('ID: %s (%s)\n%s | Conf: %.1f%% | R: %.2f', ...
+        pID_current, res, template_name, conf, rep_here), 'FontSize', 8);
     
     if p > 9
         xlabel('Time (ms)');
@@ -356,19 +383,19 @@ end
 
 sgtitle('Estimated OAEs vs Matched Templates', 'FontSize', 14, 'FontWeight', 'bold');
 
-% --- 10. PLOT SNR VS REPRODUCIBILITY ---
-figure('Name', 'SNR vs Reproducibility', 'Color', 'w');
+ % --- 10. PLOT SNR VS REPRODUCIBILITY ---
+% figure('Name', 'SNR vs Reproducibility', 'Color', 'w');
+% 
+% scatter(snr_values, repeat_corr_values, 80, 'filled');
+% grid on;
+% xlabel('SNR (dB)');
+% ylabel('Repeatability Correlation');
 
-scatter(snr_values, repeat_corr_values, 80, 'filled');
-grid on;
-xlabel('SNR (dB)');
-ylabel('Repeatability Correlation');
-
-for p = 1:length(patientFolders)
-    pID_current = strrep(patientFolders{p}, 'patient_', '');
-    text(snr_values(p) + 0.05, repeat_corr_values(p), pID_current, 'FontSize', 8);
-end
-
-title('Patient Quality Metrics: SNR vs Split-Half Reproducibility');
-xline(3, '--');
-yline(0.35, '--');
+% for p = 1:length(patientFolders)
+%     pID_current = strrep(patientFolders{p}, 'patient_', '');
+%     text(repeat_corr_values(p), pID_current, 'FontSize', 8);
+% end
+% 
+% title('Patient Quality Metrics: SNR vs Split-Half Reproducibility');
+% xline(3, '--');
+% yline(0.35, '--');
