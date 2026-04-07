@@ -221,11 +221,11 @@ for i = 1:size(all_scores_matrix, 1)
     end
 end
 
-% confidence for REFERs
+% Confidence for REFERs
 for i = 1:height(final_mapping)
     if final_mapping.Result(i) == "REFER"
         pID_str = final_mapping.PatientID(i);
-        p_idx = find(strcmp(cellfun(@(x) strrep(x,'patient_',''), patientFolders, 'un', 0), pID_str));
+        p_idx = find(strcmp(cellfun(@(x) strrep(x,'patient_',''), patientFolders, 'UniformOutput', false), pID_str));
         p_rows = all_scores_matrix(all_scores_matrix(:,1) == p_idx, :);
         final_mapping.Confidence(i) = p_rows(1,3) * 100;
     end
