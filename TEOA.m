@@ -13,9 +13,10 @@ patientFolders = {dirInfo.name};
 % Pre-allocate storage
 all_scores_matrix = []; % [PatientIdx, TemplateIdx, Score]
 oae_results_cell = cell(length(patientFolders), 1); % Store waveforms for plotting
-
+snr_values = zeros(length(patientFolders),1);     % SNR per patient
+repeat_corr_values = zeros(length(patientFolders),1); % for split-half reproducibility
+fs_values = zeros(length(patientFolders),1);      
 fprintf('Processing %d patients... Please wait.\n', length(patientFolders));
-
 
 
 for p = 1:length(patientFolders)
