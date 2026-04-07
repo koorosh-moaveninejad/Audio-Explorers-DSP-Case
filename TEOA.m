@@ -63,15 +63,33 @@ for p = 1:length(patientFolders)
         epochData{i} = tmp;
     end
     
-    % 3. Nonlinear Summation
+    % 3. Nonlinear Summation + split-half reproducibility
     minE = min(cellfun(@(x) size(x,2), epochData));
-    acc = zeros(info.epochSize, 1);
-    v_sets = 0;
+    
+    acc  = zeros(info.epochSize, 1); v_sets  = 0;
+    acc1 = zeros(info.epochSize, 1); v_sets1 = 0;
+    acc2 = zeros(info.epochSize, 1); v_sets2 = 0;
+    
     for k = 1:minE
         quad = epochData{1}(:,k) + epochData{2}(:,k) + epochData{3}(:,k) + epochData{4}(:,k);
-        if all(isfinite(quad)); acc = acc + quad; v_sets = v_sets + 1; end
+        
+        if all(isfinite(quad))
+            acc = acc + quad;
+            v_sets = v_sets + 1;
+            
+            if mod(k,2) == 1
+                acc1 = acc1 + quad;
+                v_sets1 = v_sets1 + 1;
+            else
+                acc2 = acc2 + quad;
+                v_sets2 = v_sets2 + 1;
+            end
+        end
     end
-    oae_raw = acc / max(1, v_sets);
+    
+    oae_raw  = acc  / max(1, v_sets);
+    oae_raw1 = acc1 / max(1, v_sets1);
+    oae_raw2 = acc2 / max(1, v_sets2);
     
     % 4.Post-Processing ---
     t = (0:info.epochSize-1)' / fs;
