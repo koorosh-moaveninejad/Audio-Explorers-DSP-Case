@@ -25,29 +25,41 @@ for p = 1:length(patientFolders)
     
     % 1. Load Data
     [rec, fs] = audioread(fullfile(pFolder, ['Patient_' pID '_rec.wav']));
+    fs_values(p) = fs;
     info = jsondecode(fileread(fullfile(pFolder, ['Patient_' pID '_info.json'])));
     
-    % 2. Extraction & Sub-Sample Alignment
+    % 2. Extraction & Alignment
     types = {'A','B','C','D'};
     epochData = cell(1,4);
     p_ref = [];
+    
     for i = 1:4
         act = audioread(fullfile(pFolder, ['Patient_' pID '_active' types{i} '.wav']));
         starts = find(diff([0; act > 0.5]) == 1);
         tmp = [];
+        
         for s = starts'
             e = s + info.epochSize - 1;
             if e <= length(rec)
-                seg = rec(s:e) - mean(rec(s:e));
-                if isempty(p_ref); p_ref = seg(1:100); shifted = seg;
+                seg = rec(s:e);
+                seg = seg - mean(seg);
+                
+                if isempty(p_ref)
+                    p_ref = seg(1:min(100,length(seg)));
+                    shifted = seg;
                 else
-                    [c_a, lags_a] = xcorr(seg(1:100), p_ref, 15, 'coeff');
-                    [~, m_idx] = max(c_a);
-                    shifted = circshift(seg, -lags_a(m_idx));
+                    ref_part = p_ref(1:min(length(p_ref),100));
+                    seg_part = seg(1:min(length(seg),length(ref_part)));
+                    
+                    [c_a, lags_a] = xcorr(seg_part, ref_part, 15, 'coeff');
+                    [~, m_idx_align] = max(c_a);
+                    shifted = circshift(seg, -lags_a(m_idx_align));
                 end
+                
                 tmp = [tmp, shifted]; %#ok<AGROW>
             end
         end
+        
         epochData{i} = tmp;
     end
     
