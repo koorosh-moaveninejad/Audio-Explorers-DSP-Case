@@ -106,3 +106,87 @@ def dataframe_download_button(df, name):
         mime="text/csv",
         use_container_width=True,
     )
+
+
+def fft_fig(res):
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=res["fft_freq"],
+            y=res["fft_mag"],
+            mode="lines",
+            name="Estimated FFT",
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=res["template_fft_freq"],
+            y=res["template_fft_mag"],
+            mode="lines",
+            name="Template FFT",
+            line=dict(dash="dash"),
+        )
+    )
+
+    fig.update_layout(
+        title=f"Patient {res['PatientID']} · Frequency Spectrum",
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis_title="Frequency (Hz)",
+        yaxis_title="Magnitude",
+        margin=dict(l=30, r=20, t=50, b=40),
+        height=380,
+    )
+
+    fig.update_xaxes(range=[500, 5000])
+    return fig
+
+
+def grid_fft_fig(results):
+    cols = 3
+    rows = (len(results) + cols - 1) // cols
+    fig = make_subplots(rows=rows, cols=cols, subplot_titles=[f"Patient {r['PatientID']}" for r in results])
+
+    for i, r in enumerate(results):
+        rr = i // cols + 1
+        cc = i % cols + 1
+
+        fig.add_trace(
+            go.Scatter(
+                x=r["fft_freq"],
+                y=r["fft_mag"],
+                mode="lines",
+                name="Estimated FFT",
+                showlegend=False,
+            ),
+            row=rr,
+            col=cc,
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=r["template_fft_freq"],
+                y=r["template_fft_mag"],
+                mode="lines",
+                line=dict(dash="dash"),
+                name="Template FFT",
+                showlegend=False,
+            ),
+            row=rr,
+            col=cc,
+        )
+
+        fig.update_xaxes(title_text="Hz", range=[500, 5000], row=rr, col=cc)
+
+    fig.update_layout(
+        title="FFT Gallery",
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=max(420, 280 * rows),
+        margin=dict(l=20, r=20, t=60, b=30),
+    )
+    return fig
