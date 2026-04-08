@@ -171,6 +171,19 @@ def process_patient_folder(patient_dir, templates):
     best_score = 0.0
     best_target_crop = np.zeros(np.sum(resp_idx), dtype=np.float64)
     oae_crop = oae_clean[resp_idx]
+    
+    # Fourier analysis of estimated OAE
+    if len(oae_crop) > 1:
+        nfft = len(oae_crop)
+        y_fft = np.fft.fft(oae_crop)
+        p2 = np.abs(y_fft / nfft)
+        p1 = p2[: nfft // 2 + 1]
+        if len(p1) > 2:
+            p1[1:-1] = 2 * p1[1:-1]
+        f_axis = fs * np.arange(0, nfft // 2 + 1) / nfft
+    else:
+        p1 = np.array([0.0])
+        f_axis = np.array([0.0])
 
     for name, target in templates.items():
         target = np.asarray(target, dtype=np.float64).ravel()
@@ -206,6 +219,18 @@ def process_patient_folder(patient_dir, templates):
     else:
         matched_norm = np.zeros_like(est_norm)
 
+    if len(best_target_crop) > 1:
+        nfft_t = len(best_target_crop)
+        y_fft_t = np.fft.fft(best_target_crop)
+        p2_t = np.abs(y_fft_t / nfft_t)
+        p1_t = p2_t[: nfft_t // 2 + 1]
+        if len(p1_t) > 2:
+            p1_t[1:-1] = 2 * p1_t[1:-1]
+        f_axis_t = fs * np.arange(0, nfft_t // 2 + 1) / nfft_t
+    else:
+        p1_t = np.array([0.0])
+        f_axis_t = np.array([0.0])
+
     return {
         "PatientID": p_id,
         "fs": fs,
@@ -219,6 +244,10 @@ def process_patient_folder(patient_dir, templates):
         "best_score": best_score,
         "repeat_corr": float(repeat_corr),
         "template_scores": template_scores,
+        "fft_freq": f_axis,
+        "fft_mag": p1,
+        "template_fft_freq": f_axis_t,
+        "template_fft_mag": p1_t,
     }
 
 
