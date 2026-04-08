@@ -150,12 +150,15 @@ else:
         patient_ids = [r["PatientID"] for r in patient_results]
         selected_pid_fft = st.selectbox("Select patient for spectrum", patient_ids, key="fft_patient")
         res_fft = next(r for r in patient_results if r["PatientID"] == selected_pid_fft)
-        st.plotly_chart(fft_fig(res_fft), use_container_width=True)
+        st.plotly_chart(fft_fig(res), use_container_width=True, key=f"fft_fig_patient_explorer_{res['PatientID']}")
 
     with tabs[4]:
         st.plotly_chart(grid_waveforms_fig(patient_results), use_container_width=True)
 
     with tabs[5]:
+        st.plotly_chart(grid_fft_fig(patient_results), use_container_width=True, key="spectrum_gallery")
+
+    with tabs[6]:
         col1, col2 = st.columns(2)
         with col1:
             dataframe_download_button(final_df, "final_mapping")
