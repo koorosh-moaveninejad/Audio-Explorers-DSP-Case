@@ -13,6 +13,9 @@ patientFolders = {dirInfo.name};
 % Pre-allocate storage
 all_scores_matrix = []; % [PatientIdx, TemplateIdx, Score]
 oae_results_cell = cell(length(patientFolders), 1); % Store waveforms for plotting
+fft_results_cell = cell(length(patientFolders), 1);
+fft_template_cell = cell(length(patientFolders), 1);
+freq_axis_cell = cell(length(patientFolders), 1);
 snr_values = zeros(length(patientFolders),1);     % SNR per patient
 repeat_corr_values = zeros(length(patientFolders),1); % for split-half reproducibility
 fs_values = zeros(length(patientFolders),1);      
@@ -126,6 +129,26 @@ for p = 1:length(patientFolders)
     oae_clean2 = oae_clean2 - (0.1 * noise_clean);
     
     oae_results_cell{p} = oae_clean;
+    % --- Fourier analysis of estimated OAE in response window ---
+    resp_idx = (t > 0.004 & t < 0.016);
+    oae_fft_seg = oae_clean(resp_idx);
+    
+    Nfft = length(oae_fft_seg);
+    if Nfft > 1
+        Y = fft(oae_fft_seg);
+        P2 = abs(Y / Nfft);
+        P1 = P2(1:floor(Nfft/2)+1);
+        if length(P1) > 2
+            P1(2:end-1) = 2 * P1(2:end-1);
+        end
+        f_axis = fs * (0:floor(Nfft/2)) / Nfft;
+    else
+        P1 = 0;
+        f_axis = 0;
+    end
+    
+    fft_results_cell{p} = P1;
+    freq_axis_cell{p} = f_axis;
     
     % Zero-phase filtering with a tighter transition
     bpFilt = designfilt('bandpassiir','FilterOrder',10, ...
@@ -171,6 +194,22 @@ for p = 1:length(patientFolders)
         target_adj = [target; zeros(max(0, length(oae_clean)-length(target)), 1)];
         target_adj = target_adj(1:length(oae_clean));
         target_crop = target_adj(resp_idx);
+        % FFT of matched template crop
+        Nfft_t = length(target_crop);
+        if Nfft_t > 1
+            Yt = fft(target_crop);
+            P2t = abs(Yt / Nfft_t);
+            P1t = P2t(1:floor(Nfft_t/2)+1);
+            if length(P1t) > 2
+                P1t(2:end-1) = 2 * P1t(2:end-1);
+            end
+            f_axis_t = fs_values(p) * (0:floor(Nfft_t/2)) / Nfft_t;
+        else
+            P1t = 0;
+            f_axis_t = 0;
+        end
+        
+        fft_template_cell{p} = P1t;
         
         [c, ~] = xcorr(oae_crop, target_crop, 'coeff');
         score = max(c);
@@ -182,6 +221,8 @@ for p = 1:length(patientFolders)
         all_scores_matrix = [all_scores_matrix; p, j, score]; %#ok<AGROW>
     end
 end
+
+
 
 % 7. MAPPING LOGIC BASED ON REPEAT CORRELATION
 all_scores_matrix = sortrows(all_scores_matrix, -3);
@@ -399,3 +440,83 @@ sgtitle('Estimated OAEs vs Matched Templates', 'FontSize', 14, 'FontWeight', 'bo
 % title('Patient Quality Metrics: SNR vs Split-Half Reproducibility');
 % xline(3, '--');
 % yline(0.35, '--');
+
+
+% --- 11. PLOT FFT OF ESTIMATED OAE VS MATCHED TEMPLATE ---
+figure('Name', 'FFT: Estimated vs Matched Template', ...
+    'Color', 'w', 'Units', 'normalized', 'Position', [0.05 0.05 0.9 0.85]);
+
+for p = 1:length(patientFolders)
+    subplot(4, 3, p);
+
+    pID_current = string(strrep(patientFolders{p}, 'patient_', ''));
+    row_idx = find(final_mapping.PatientID == pID_current);
+
+    % Estimated OAE FFT
+    est_full = oae_results_cell{p};
+    t_est = (0:length(est_full)-1)' / fs_values(p);
+    resp_idx = (t_est > 0.004 & t_est < 0.016);
+    est_crop = est_full(resp_idx);
+
+    Nfft = length(est_crop);
+    if Nfft > 1
+        Ye = fft(est_crop);
+        P2e = abs(Ye / Nfft);
+        P1e = P2e(1:floor(Nfft/2)+1);
+        if length(P1e) > 2
+            P1e(2:end-1) = 2 * P1e(2:end-1);
+        end
+        f_est = fs_values(p) * (0:floor(Nfft/2)) / Nfft;
+    else
+        P1e = 0;
+        f_est = 0;
+    end
+
+    % Default template FFT
+    P1t = zeros(size(P1e));
+    f_temp = f_est;
+
+    template_name = char(final_mapping.Template(row_idx));
+    if final_mapping.Template(row_idx) ~= "N/A"
+        target = templates.(template_name)(:);
+        target_adj = [target; zeros(max(0, length(est_full)-length(target)), 1)];
+        target_adj = target_adj(1:length(est_full));
+        target_crop = target_adj(resp_idx);
+
+        Nfft_t = length(target_crop);
+        if Nfft_t > 1
+            Yt = fft(target_crop);
+            P2t = abs(Yt / Nfft_t);
+            P1t = P2t(1:floor(Nfft_t/2)+1);
+            if length(P1t) > 2
+                P1t(2:end-1) = 2 * P1t(2:end-1);
+            end
+            f_temp = fs_values(p) * (0:floor(Nfft_t/2)) / Nfft_t;
+        end
+    end
+
+    plot(f_est, P1e, 'LineWidth', 1.5); hold on;
+    plot(f_temp, P1t, '--', 'LineWidth', 1.5); hold off;
+
+    grid on;
+    xlim([500 5000]);
+
+    res = char(final_mapping.Result(row_idx));
+    conf = final_mapping.Confidence(row_idx);
+    rep_here = final_mapping.RepeatCorr(row_idx);
+
+    title(sprintf('ID: %s (%s)\n%s | Conf: %.1f%% | R: %.2f', ...
+        pID_current, res, template_name, conf, rep_here), 'FontSize', 8);
+
+    if p > 9
+        xlabel('Frequency (Hz)');
+    end
+    if mod(p,3) == 1
+        ylabel('Magnitude');
+    end
+
+    legend('Estimated FFT', 'Template FFT', 'FontSize', 7, 'Location', 'best');
+end
+
+sgtitle('FFT Comparison: Estimated OAE vs Matched Template', ...
+    'FontSize', 14, 'FontWeight', 'bold');
