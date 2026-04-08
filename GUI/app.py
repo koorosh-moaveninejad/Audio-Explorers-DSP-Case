@@ -6,7 +6,9 @@ from src.dsp_engine import run_analysis
 from src.visualizer import (
     line_fig,
     match_fig,
+    fft_fig,
     grid_waveforms_fig,
+    grid_fft_fig,
     dataframe_download_button,
 )
 
@@ -103,7 +105,9 @@ else:
         "Overview",
         "Patient explorer",
         "Template matches",
+        "Spectrum explorer",
         "Waveform gallery",
+        "Spectrum gallery",
         "Downloads",
     ])
 
@@ -128,6 +132,7 @@ else:
             use_container_width=True,
         )
         st.plotly_chart(match_fig(res), use_container_width=True)
+        st.plotly_chart(fft_fig(res), use_container_width=True)
 
     with tabs[2]:
         st.markdown("### All template scores")
@@ -142,9 +147,15 @@ else:
     #     st.dataframe(existence_df, use_container_width=True, hide_index=True)
 
     with tabs[3]:
-        st.plotly_chart(grid_waveforms_fig(patient_results), use_container_width=True)
+        patient_ids = [r["PatientID"] for r in patient_results]
+        selected_pid_fft = st.selectbox("Select patient for spectrum", patient_ids, key="fft_patient")
+        res_fft = next(r for r in patient_results if r["PatientID"] == selected_pid_fft)
+        st.plotly_chart(fft_fig(res_fft), use_container_width=True)
 
     with tabs[4]:
+        st.plotly_chart(grid_waveforms_fig(patient_results), use_container_width=True)
+
+    with tabs[5]:
         col1, col2 = st.columns(2)
         with col1:
             dataframe_download_button(final_df, "final_mapping")
