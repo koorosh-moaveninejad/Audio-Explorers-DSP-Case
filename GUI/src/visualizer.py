@@ -80,12 +80,23 @@ def grid_waveforms_fig(results):
     fig = make_subplots(
         rows=rows,
         cols=cols,
-        subplot_titles=[f"Patient {r['PatientID']}" for r in results]
+        subplot_titles=[
+            f"Patient {r['PatientID']} | "
+            f"{r.get('result','N/A')} | "
+            f"Score: {r.get('assigned_score', r.get('best_score', 0)*100):.1f}%"
+            for r in results
+        ]
     )
 
     for i, r in enumerate(results):
         rr = i // cols + 1
         cc = i % cols + 1
+
+        # Choose color based on PASS / REFER
+        if r.get("result") == "PASS":
+            color_est = "#00ffcc"
+        else:
+            color_est = "#ff4d4d"
 
         # Estimated waveform
         fig.add_trace(
@@ -94,6 +105,7 @@ def grid_waveforms_fig(results):
                 y=r["est_norm"],
                 mode="lines",
                 name="Estimated",
+                line=dict(color=color_est, width=3),
                 showlegend=(i == 0),
             ),
             row=rr,
@@ -107,7 +119,7 @@ def grid_waveforms_fig(results):
                 y=r["matched_norm"],
                 mode="lines",
                 name="Matched Template",
-                line=dict(dash="dash"),
+                line=dict(dash="dash", width=3),
                 showlegend=(i == 0),
             ),
             row=rr,
@@ -126,7 +138,7 @@ def grid_waveforms_fig(results):
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        height=max(420, 320 * rows),
+        height=max(500, 400 * rows),
         margin=dict(l=20, r=20, t=60, b=30),
     )
 

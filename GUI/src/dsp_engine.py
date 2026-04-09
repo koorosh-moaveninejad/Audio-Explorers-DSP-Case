@@ -319,6 +319,27 @@ def run_analysis(root_dir, templates, patient_dirs):
 
         final_df = final_df.sort_values("Confidence", ascending=False).reset_index(drop=True)
 
+    # Sync final_df info back into patient_results
+    final_map = {
+        row["PatientID"]: {
+            "result": row["Result"],
+            "assigned_template": row["Template"],
+            "assigned_score": float(row["Confidence"]),
+        }
+        for _, row in final_df.iterrows()
+    }
+
+    for r in patient_results:
+        pid = r["PatientID"]
+        if pid in final_map:
+            r["result"] = final_map[pid]["result"]
+            r["assigned_template"] = final_map[pid]["assigned_template"]
+            r["assigned_score"] = final_map[pid]["assigned_score"]
+        else:
+            r["result"] = "N/A"
+            r["assigned_template"] = "N/A"
+            r["assigned_score"] = 0.0
+
     return {
         "patient_results": patient_results,
         "scores_df": scores_df,
