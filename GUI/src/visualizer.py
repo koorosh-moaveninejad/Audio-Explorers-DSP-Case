@@ -74,26 +74,62 @@ def scatter_quality_fig(df):
 
 
 def grid_waveforms_fig(results):
-    cols = 3
+    cols = 1
     rows = (len(results) + cols - 1) // cols
-    fig = make_subplots(rows=rows, cols=cols, subplot_titles=[f"Patient {r['PatientID']}" for r in results])
+
+    fig = make_subplots(
+        rows=rows,
+        cols=cols,
+        subplot_titles=[f"Patient {r['PatientID']}" for r in results]
+    )
+
     for i, r in enumerate(results):
         rr = i // cols + 1
         cc = i % cols + 1
+
+        # Estimated waveform
         fig.add_trace(
-            go.Scatter(x=r["t_ms"], y=r["oae_clean"], mode="lines", showlegend=False),
+            go.Scatter(
+                x=r["t_crop_ms"],
+                y=r["est_norm"],
+                mode="lines",
+                name="Estimated",
+                showlegend=(i == 0),
+            ),
             row=rr,
             col=cc,
         )
-        fig.update_xaxes(title_text="ms", range=[0, 20], row=rr, col=cc)
+
+        # Matched template waveform
+        fig.add_trace(
+            go.Scatter(
+                x=r["t_crop_ms"],
+                y=r["matched_norm"],
+                mode="lines",
+                name="Matched Template",
+                line=dict(dash="dash"),
+                showlegend=(i == 0),
+            ),
+            row=rr,
+            col=cc,
+        )
+
+        fig.update_xaxes(
+            title_text="ms",
+            range=[4, 16],
+            row=rr,
+            col=cc
+        )
+
     fig.update_layout(
-        title="All Estimated OAEs",
+        title="Waveform Gallery: Estimated vs Matched Template",
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        height=max(420, 280 * rows),
+        height=max(420, 320 * rows),
         margin=dict(l=20, r=20, t=60, b=30),
     )
+
     return fig
 
 
