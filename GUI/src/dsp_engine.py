@@ -135,8 +135,14 @@ def process_patient_folder(patient_dir, templates):
                     shifted = seg
                 else:
                     seg_head = seg[: min(100, len(seg))]
-                    corr = correlate(seg_head, ref, mode="full")
-                    lags = np.arange(-len(ref) + 1, len(seg_head))
+                    ref_head = ref[: min(100, len(ref))]
+
+                    corr = correlate(seg_head, ref_head, mode="full")
+                    denom = np.linalg.norm(seg_head) * np.linalg.norm(ref_head)
+                    if denom > 0:
+                        corr = corr / denom
+
+                    lags = np.arange(-len(ref_head) + 1, len(seg_head))
                     keep = (lags >= -20) & (lags <= 20)
                     corr = corr[keep]
                     lags = lags[keep]

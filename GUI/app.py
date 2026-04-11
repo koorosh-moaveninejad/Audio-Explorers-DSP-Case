@@ -79,12 +79,12 @@ if bundle is None:
         <div class="cosmic-card">
         <h3>Mission briefing</h3>
         <p>This app reproduces your MATLAB workflow in Python and adds:</p>
-        <ul>
-          <li>folder or ZIP-based input</li>
-          <li>template matching and ranking</li>
-          <li>template-independent OAE existence check</li>
-          <li>SNR and split-half reproducibility plots</li>
-          <li>patient-by-patient waveform and matched-template visualization</li>
+            <ul>
+            <li>folder or ZIP-based input</li>
+            <li>repeatability-based PASS / REFER decision</li>
+            <li>global competitive template assignment</li>
+            <li>patient-by-patient waveform and spectrum comparison</li>
+            <li>gallery views for all patients</li>
         </ul>
         <p>Load data from the sidebar, then launch the analysis.</p>
         </div>
@@ -98,7 +98,7 @@ else:
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Patients", len(patient_results))
-    c2.metric("PASS (template mapping)", int((final_df["Result"] == "PASS").sum()))
+    c2.metric("PASS (RepeatCorr)", int((final_df["Result"] == "PASS").sum()))
     c3.metric("Templates", len(bundle["templates"]))
 
     tabs = st.tabs([
@@ -120,17 +120,29 @@ else:
         selected_pid = st.selectbox("Select patient", patient_ids)
         res = next(r for r in patient_results if r["PatientID"] == selected_pid)
 
-        a, b = st.columns(2)
+        a, b, c = st.columns(3)
         a.metric("Assigned template", res.get("assigned_template", "N/A"))
         b.metric("Repeat corr", f"{res['repeat_corr']:.2f}")
+        c.metric("Match score", f"{res.get('assigned_score', 0):.1f}%")
         # st.caption(f"Template-independent OAE exists: {'Yes' if res['oae_exists_rule'] else 'No'}")
 
         st.plotly_chart(
             line_fig(res["t_ms"], res["oae_clean"], f"Patient {selected_pid} · Estimated OAE", name="Estimated OAE"),
             use_container_width=True,
+            key=f"patient_line_{selected_pid}",
         )
-        st.plotly_chart(match_fig(res), use_container_width=True)
-        st.plotly_chart(fft_fig(res), use_container_width=True)
+
+        st.plotly_chart(
+            match_fig(res),
+            use_container_width=True,
+            key=f"patient_match_{selected_pid}",
+        )
+
+        st.plotly_chart(
+            fft_fig(res),
+            use_container_width=True,
+            key=f"patient_fft_{selected_pid}",
+        )
 
     with tabs[2]:
         st.markdown("### All template scores")
@@ -151,7 +163,11 @@ else:
         st.plotly_chart(fft_fig(res_fft), use_container_width=True, key="fft_fig_spectrum_tab")
 
     with tabs[4]:
-        st.plotly_chart(grid_waveforms_fig(patient_results), use_container_width=True)
+        st.plotly_chart(
+        grid_waveforms_fig(patient_results),
+        use_container_width=True,
+        key="waveform_gallery",
+)
 
     with tabs[5]:
         st.plotly_chart(grid_fft_fig(patient_results), use_container_width=True, key="spectrum_gallery")
