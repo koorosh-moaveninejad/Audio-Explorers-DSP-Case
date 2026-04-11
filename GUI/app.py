@@ -1,5 +1,5 @@
 import streamlit as st
-
+import pandas as pd
 from src.constants import COSMIC_CSS, APP_TITLE, APP_SUBTITLE
 from src.io_utils import parse_patient_structure, unpack_zip_to_temp
 from src.dsp_engine import run_analysis
@@ -112,10 +112,8 @@ else:
     ])
 
     with tabs[0]:
-        st.markdown("### Final mission mapping")
-        st.dataframe(final_df, use_container_width=True, hide_index=True)
-        # st.markdown("### Template-independent OAE existence check")
-        # st.dataframe(existence_df, use_container_width=True, hide_index=True)
+         st.markdown("### Final mission mapping")
+         st.table(final_df.set_index(pd.Index([""] * len(final_df))))
 
     with tabs[1]:
         patient_ids = [r["PatientID"] for r in patient_results]
@@ -123,7 +121,7 @@ else:
         res = next(r for r in patient_results if r["PatientID"] == selected_pid)
 
         a, b = st.columns(2)
-        a.metric("Best template", res["best_template"])
+        a.metric("Assigned template", res.get("assigned_template", "N/A"))
         b.metric("Repeat corr", f"{res['repeat_corr']:.2f}")
         # st.caption(f"Template-independent OAE exists: {'Yes' if res['oae_exists_rule'] else 'No'}")
 

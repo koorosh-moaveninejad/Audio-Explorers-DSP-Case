@@ -300,24 +300,30 @@ def run_analysis(root_dir, templates, patient_dirs):
             score = float(row["Score"])
 
             if tname not in used_templates:
-                idx = final_df.index[final_df["PatientID"] == pid][0]
-                final_df.loc[idx, ["Result", "Template", "Confidence"]] = ["PASS", tname, score * 100.0]
+                row_idx = final_df.index[final_df["PatientID"] == pid][0]
+                final_df.loc[row_idx, ["Result", "Template", "Confidence"]] = ["PASS", tname, score * 100.0]
                 used_templates.add(tname)
                 assigned = True
                 break
 
         if not assigned:
-            idx = final_df.index[final_df["PatientID"] == pid][0]
+            row_idx = final_df.index[final_df["PatientID"] == pid][0]
             best_score = float(patient_template_rows.iloc[0]["Score"]) if not patient_template_rows.empty else 0.0
-            final_df.loc[idx, ["Result", "Template", "Confidence"]] = ["PASS", "N/A", best_score * 100.0]
+            final_df.loc[row_idx, ["Result", "Template", "Confidence"]] = ["PASS", "N/A", best_score * 100.0]
 
-        for idx in final_df.index[final_df["Result"] == "REFER"]:
-            pid = final_df.loc[idx, "PatientID"]
-            rows = scores_df[scores_df["PatientID"] == pid]
-            if not rows.empty:
-                final_df.loc[idx, "Confidence"] = float(rows.iloc[0]["Score"]) * 100.0
+    # Step 3: give REFER patients "-" as confidence
+    for row_idx in final_df.index[final_df["Result"] == "REFER"]:
+        final_df.loc[row_idx, "Confidence"] = None
 
-        final_df = final_df.sort_values("Confidence", ascending=False).reset_index(drop=True)
+    # Step 4: sort so PASS rows come first, REFER rows after
+    # and sort inside each group by Confidence descending
+    final_df["ResultOrder"] = final_df["Result"].map({"PASS": 0, "REFER": 1}).fillna(2)
+    final_df = (
+        final_df
+        .sort_values(["ResultOrder", "Confidence", "PatientID"], ascending=[True, False, True])
+        .drop(columns=["ResultOrder"])
+        .reset_index(drop=True)
+    )
 
     # Sync final_df info back into patient_results
     final_map = {
@@ -346,3 +352,4 @@ def run_analysis(root_dir, templates, patient_dirs):
         "final_df": final_df,
         "templates": templates,
     }
+
