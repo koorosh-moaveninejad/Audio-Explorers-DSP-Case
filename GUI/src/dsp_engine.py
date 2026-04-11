@@ -102,114 +102,185 @@ def process_patient_folder(patient_dir, templates):
     info = load_json_any(info_path)
     epoch_size = int(info["epochSize"])
 
+    # MATLAB logic: centerFreq if available, otherwise fallback
+    if "centerFreq" in info:
+        target_freqs = np.asarray(info["centerFreq"], dtype=np.float64).ravel()
+    else:
+        target_freqs = np.array([1000.0, 2000.0, 3000.0, 4000.0], dtype=np.float64)
+
     epoch_data = []
     ref = None
-    for t in ["A", "B", "C", "D"]:
-        active_path = patient_dir / f"Patient_{p_id}_active{t}.wav"
+
+    for tname in ["A", "B", "C", "D"]:
+        active_path = patient_dir / f"Patient_{p_id}_active{tname}.wav"
         if not active_path.exists():
-            raise FileNotFoundError(f"Missing active{t} file for patient {p_id}")
+            raise FileNotFoundError(f"Missing active{tname} file for patient {p_id}")
+
         fs_active, act = read_wav_any(active_path)
         if fs_active != fs:
-            raise ValueError(f"Sample-rate mismatch in patient {p_id}, active{t}")
-        epochs, ref = extract_epochs(rec, act, epoch_size, ref=ref)
-        epoch_data.append(epochs)
+            raise ValueError(f"Sample-rate mismatch in patient {p_id}, active{tname}")
+
+        starts = np.where(np.diff(np.concatenate([[0], (act > 0.5).astype(int)])) == 1)[0]
+        tmp = []
+
+        for s in starts:
+            e = s + epoch_size
+            if e <= len(rec):
+                seg = rec[s:e].astype(np.float64)
+                seg = seg - np.mean(seg)
+
+                # MATLAB final logic: first 100 samples, max lag 20
+                if ref is None:
+                    ref = seg[: min(100, len(seg))].copy()
+                    shifted = seg
+                else:
+                    seg_head = seg[: min(100, len(seg))]
+                    corr = correlate(seg_head, ref, mode="full")
+                    lags = np.arange(-len(ref) + 1, len(seg_head))
+                    keep = (lags >= -20) & (lags <= 20)
+                    corr = corr[keep]
+                    lags = lags[keep]
+                    best_lag = int(lags[np.argmax(corr)]) if len(corr) else 0
+                    shifted = np.roll(seg, -best_lag)
+
+                tmp.append(shifted)
+
+        if len(tmp) == 0:
+            epoch_data.append(np.zeros((epoch_size, 0), dtype=np.float64))
+        else:
+            epoch_data.append(np.column_stack(tmp))
 
     min_e = min(arr.shape[1] for arr in epoch_data) if epoch_data else 0
+
     if min_e == 0:
-        oae_raw = np.zeros(epoch_size, dtype=np.float64)
-        oae_raw1 = np.zeros(epoch_size, dtype=np.float64)
-        oae_raw2 = np.zeros(epoch_size, dtype=np.float64)
-    else:
-        acc = np.zeros(epoch_size, dtype=np.float64)
-        acc1 = np.zeros(epoch_size, dtype=np.float64)
-        acc2 = np.zeros(epoch_size, dtype=np.float64)
-        v = v1 = v2 = 0
+        zero = np.zeros(epoch_size, dtype=np.float64)
+        template_scores = [{"PatientID": p_id, "Template": name, "Score": 0.0} for name in templates.keys()]
+        return {
+            "PatientID": p_id,
+            "fs": fs,
+            "t_ms": (np.arange(epoch_size) / fs) * 1000.0,
+            "t_crop_ms": np.array([], dtype=np.float64),
+            "oae_clean": zero,
+            "oae_crop": np.array([], dtype=np.float64),
+            "est_norm": np.array([], dtype=np.float64),
+            "matched_norm": np.array([], dtype=np.float64),
+            "best_template": "N/A",
+            "best_score": 0.0,
+            "repeat_corr": 0.0,
+            "template_scores": template_scores,
+            "fft_freq": np.array([0.0]),
+            "fft_mag": np.array([0.0]),
+            "template_fft_freq": np.array([0.0]),
+            "template_fft_mag": np.array([0.0]),
+        }
 
-        for k in range(min_e):
-            quad = epoch_data[0][:, k] + epoch_data[1][:, k] + epoch_data[2][:, k] + epoch_data[3][:, k]
-            if np.all(np.isfinite(quad)):
-                acc += quad
-                v += 1
-                if (k % 2) == 0:
-                    acc1 += quad
-                    v1 += 1
-                else:
-                    acc2 += quad
-                    v2 += 1
+    # MATLAB final logic: +1+1+1-3 style accumulation, split-half
+    acc = np.zeros(epoch_size, dtype=np.float64)
+    acc1 = np.zeros(epoch_size, dtype=np.float64)
+    acc2 = np.zeros(epoch_size, dtype=np.float64)
+    v_sets = 0
 
-        oae_raw = acc / max(v, 1)
-        oae_raw1 = acc1 / max(v1, 1)
-        oae_raw2 = acc2 / max(v2, 1)
+    for k in range(min_e):
+        quad = epoch_data[0][:, k] + epoch_data[1][:, k] + epoch_data[2][:, k] + epoch_data[3][:, k]
+        if np.all(np.isfinite(quad)):
+            acc += quad
+            v_sets += 1
+            if (k % 2) == 0:
+                acc1 += quad
+            else:
+                acc2 += quad
 
     t = np.arange(epoch_size) / fs
     win_env = np.exp(-((t - 0.008) ** 2) / (2 * 0.004**2))
 
-    oae_clean = bandpass_filter(oae_raw * win_env, fs)
-    oae_clean1 = bandpass_filter(oae_raw1 * win_env, fs)
-    oae_clean2 = bandpass_filter(oae_raw2 * win_env, fs)
+    # Match MATLAB final filter: 1200-3800
+    oae_clean = bandpass_filter((acc / max(v_sets, 1)) * win_env, fs)
+    oae_clean1 = bandpass_filter((acc1 / max(1, int(np.floor(v_sets / 2)))) * win_env, fs)
+    oae_clean2 = bandpass_filter((acc2 / max(1, int(np.floor(v_sets / 2)))) * win_env, fs)
 
+    # MATLAB final logic: noise subtraction only on oae_clean
     noise_est = (
-        np.mean(epoch_data[0], axis=1) + np.mean(epoch_data[1], axis=1) - np.mean(epoch_data[2], axis=1) - np.mean(epoch_data[3], axis=1)
-        if min_e > 0 else np.zeros(epoch_size, dtype=np.float64)
+        np.mean(epoch_data[0], axis=1)
+        + np.mean(epoch_data[1], axis=1)
+        - np.mean(epoch_data[2], axis=1)
+        - np.mean(epoch_data[3], axis=1)
     )
-    noise_clean = bandpass_filter(noise_est, fs)
-
-    oae_clean = oae_clean - 0.1 * noise_clean
-    oae_clean1 = oae_clean1 - 0.1 * noise_clean
-    oae_clean2 = oae_clean2 - 0.1 * noise_clean
+    oae_clean = oae_clean - 0.1 * bandpass_filter(noise_est, fs)
 
     resp_idx = (t > DEFAULT_RESPONSE_START) & (t < DEFAULT_RESPONSE_END)
-    # noise_idx = (t > DEFAULT_NOISE_START) & (t < DEFAULT_NOISE_END)
-
-    # resp_rms = rms(oae_clean[resp_idx])
-    # noise_rms = rms(oae_clean[noise_idx])
-    # snr_db = 20 * np.log10(resp_rms / max(noise_rms, np.finfo(float).eps))
-    repeat_corr = safe_corrcoef(oae_clean1[resp_idx], oae_clean2[resp_idx])
-
-    template_scores = []
-    best_template_name = "N/A"
-    best_score = 0.0
-    best_target_crop = np.zeros(np.sum(resp_idx), dtype=np.float64)
     oae_crop = oae_clean[resp_idx]
-    
-    # Fourier analysis of estimated OAE
+
+    x1 = oae_clean1[resp_idx]
+    x2 = oae_clean2[resp_idx]
+    repeat_corr = max(0.0, safe_corrcoef(x1, x2))
+
+    # FFT of estimated OAE
     if len(oae_crop) > 1:
         nfft = len(oae_crop)
-        y_fft = np.fft.fft(oae_crop)
-        p2 = np.abs(y_fft / nfft)
-        p1 = p2[: nfft // 2 + 1]
-        if len(p1) > 2:
-            p1[1:-1] = 2 * p1[1:-1]
+        y_fft = np.abs(np.fft.fft(oae_crop) / nfft)
+        p1 = y_fft[: nfft // 2 + 1]
+        p1 = p1 / (np.max(p1) + np.finfo(float).eps)
         f_axis = fs * np.arange(0, nfft // 2 + 1) / nfft
     else:
         p1 = np.array([0.0])
         f_axis = np.array([0.0])
 
+    template_scores = []
+    best_template_name = "N/A"
+    best_score = 0.0
+    best_target_crop = np.zeros(np.sum(resp_idx), dtype=np.float64)
+    best_f_axis_t = np.array([0.0])
+    best_p1_t = np.array([0.0])
+
     for name, target in templates.items():
         target = np.asarray(target, dtype=np.float64).ravel()
+
         if len(target) < len(oae_clean):
             target_adj = np.pad(target, (0, len(oae_clean) - len(target)))
         else:
             target_adj = target[: len(oae_clean)]
+
         target_crop = target_adj[resp_idx]
 
+        # MATLAB final logic: time-domain xcorr, no abs, max(c), clamp to >=0 later
         if len(oae_crop) == 0 or len(target_crop) == 0 or np.std(oae_crop) == 0 or np.std(target_crop) == 0:
-            score = 0.0
+            time_score = 0.0
         else:
             corr = correlate(oae_crop, target_crop, mode="full")
             denom = np.linalg.norm(oae_crop) * np.linalg.norm(target_crop)
-            score = float(np.max(corr / denom)) if denom > 0 else 0.0
-            if not np.isfinite(score) or score < 0:
-                score = 0.0
+            time_score = float(np.max(corr / denom)) if denom > 0 else 0.0
+            if not np.isfinite(time_score):
+                time_score = 0.0
+
+        # MATLAB final logic: spectral fit at center frequencies
+        if len(target_crop) > 1:
+            y_fft_t = np.abs(np.fft.fft(target_crop) / len(target_crop))
+            p1_t = y_fft_t[: len(target_crop) // 2 + 1]
+            p1_t = p1_t / (np.max(p1_t) + np.finfo(float).eps)
+            f_axis_t = fs * np.arange(0, len(target_crop) // 2 + 1) / len(target_crop)
+        else:
+            p1_t = np.array([0.0])
+            f_axis_t = np.array([0.0])
+
+        spectral_fit = 0.0
+        for f_target in target_freqs:
+            bin_idx = int(np.argmin(np.abs(f_axis - f_target))) if len(f_axis) else 0
+            spectral_fit += float(p1[bin_idx] * p1_t[bin_idx])
+        spectral_fit /= max(len(target_freqs), 1)
+
+        score = 0.7 * max(0.0, time_score) + 0.3 * spectral_fit
 
         template_scores.append({"PatientID": p_id, "Template": name, "Score": score})
+
         if score > best_score:
             best_score = score
             best_template_name = name
             best_target_crop = target_crop.copy()
+            best_f_axis_t = f_axis_t
+            best_p1_t = p1_t
 
-    est_norm = oae_crop / np.linalg.norm(oae_crop) if np.linalg.norm(oae_crop) > 0 else oae_crop.copy()
-    target_norm = best_target_crop / np.linalg.norm(best_target_crop) if np.linalg.norm(best_target_crop) > 0 else best_target_crop.copy()
+    est_norm = oae_crop / (np.max(np.abs(oae_crop)) + np.finfo(float).eps) if len(oae_crop) else oae_crop.copy()
+    target_norm = best_target_crop / (np.max(np.abs(best_target_crop)) + np.finfo(float).eps) if len(best_target_crop) else best_target_crop.copy()
 
     if len(est_norm) > 0 and len(target_norm) > 0:
         corr = correlate(est_norm, target_norm, mode="full")
@@ -218,18 +289,6 @@ def process_patient_folder(patient_dir, templates):
         matched_norm = np.roll(target_norm, best_lag)
     else:
         matched_norm = np.zeros_like(est_norm)
-
-    if len(best_target_crop) > 1:
-        nfft_t = len(best_target_crop)
-        y_fft_t = np.fft.fft(best_target_crop)
-        p2_t = np.abs(y_fft_t / nfft_t)
-        p1_t = p2_t[: nfft_t // 2 + 1]
-        if len(p1_t) > 2:
-            p1_t[1:-1] = 2 * p1_t[1:-1]
-        f_axis_t = fs * np.arange(0, nfft_t // 2 + 1) / nfft_t
-    else:
-        p1_t = np.array([0.0])
-        f_axis_t = np.array([0.0])
 
     return {
         "PatientID": p_id,
@@ -246,8 +305,8 @@ def process_patient_folder(patient_dir, templates):
         "template_scores": template_scores,
         "fft_freq": f_axis,
         "fft_mag": p1,
-        "template_fft_freq": f_axis_t,
-        "template_fft_mag": p1_t,
+        "template_fft_freq": best_f_axis_t,
+        "template_fft_mag": best_p1_t,
     }
 
 
@@ -268,64 +327,56 @@ def run_analysis(root_dir, templates, patient_dirs):
     progress.empty()
     status.empty()
 
-    scores_df = pd.DataFrame(all_scores).sort_values("Score", ascending=False).reset_index(drop=True)
+    temp_names = list(templates.keys())
+    scores_df = pd.DataFrame(all_scores)
 
-    base_rows = []
-    for r in patient_results:
-        base_rows.append(
-            {
-                "PatientID": r["PatientID"],
-                "Result": "REFER",
-                "Template": "N/A",
-                "Confidence": 0.0,
-                "RepeatCorr": r["repeat_corr"],
-            }
-        )
-    final_df = pd.DataFrame(base_rows)
-
-    # Step 1: choose PASS patients by RepeatCorr
+    # MATLAB final logic: top 8 by RepeatCorr are PASS
     rep_sorted = sorted(patient_results, key=lambda x: x["repeat_corr"], reverse=True)
     pass_budget = min(8, len(patient_results))
-    pass_ids = [r["PatientID"] for r in rep_sorted[:pass_budget]]
+    pass_results = rep_sorted[:pass_budget]
 
-    # Step 2: assign templates only for PASS patients
-    used_templates = set()
+    final_df = pd.DataFrame({
+        "PatientID": [r["PatientID"] for r in patient_results],
+        "Result": ["REFER"] * len(patient_results),
+        "Template": ["N/A"] * len(patient_results),
+        "Confidence": [0.0] * len(patient_results),
+        "RepeatCorr": [r["repeat_corr"] for r in patient_results],
+    })
 
-    for pid in pass_ids:
-        patient_template_rows = scores_df[scores_df["PatientID"] == pid].sort_values("Score", ascending=False)
+    # Build cost matrix [8 PASS x 8 templates]
+    cost_matrix = np.zeros((pass_budget, len(temp_names)), dtype=np.float64)
+    for i, r in enumerate(pass_results):
+        pid = r["PatientID"]
+        patient_scores = scores_df[scores_df["PatientID"] == pid].copy()
+        patient_scores = patient_scores.set_index("Template").reindex(temp_names).reset_index()
+        cost_matrix[i, :] = patient_scores["Score"].fillna(0.0).to_numpy(dtype=np.float64)
 
-        assigned = False
-        for _, row in patient_template_rows.iterrows():
-            tname = row["Template"]
-            score = float(row["Score"])
+    # MATLAB final logic: greedy global lockout assignment
+    temp_cost = cost_matrix.copy()
+    for _ in range(min(pass_budget, len(temp_names))):
+        lin_idx = int(np.argmax(temp_cost))
+        best_val = float(temp_cost.flat[lin_idx])
 
-            if tname not in used_templates:
-                row_idx = final_df.index[final_df["PatientID"] == pid][0]
-                final_df.loc[row_idx, ["Result", "Template", "Confidence"]] = ["PASS", tname, score * 100.0]
-                used_templates.add(tname)
-                assigned = True
-                break
+        if not np.isfinite(best_val):
+            break
 
-        if not assigned:
-            row_idx = final_df.index[final_df["PatientID"] == pid][0]
-            best_score = float(patient_template_rows.iloc[0]["Score"]) if not patient_template_rows.empty else 0.0
-            final_df.loc[row_idx, ["Result", "Template", "Confidence"]] = ["PASS", "N/A", best_score * 100.0]
+        r_idx, c_idx = np.unravel_index(lin_idx, temp_cost.shape)
+        pid = pass_results[r_idx]["PatientID"]
 
-    # Step 3: give REFER patients "-" as confidence
-    for row_idx in final_df.index[final_df["Result"] == "REFER"]:
-        final_df.loc[row_idx, "Confidence"] = None
+        row_idx = final_df.index[final_df["PatientID"] == pid][0]
+        final_df.loc[row_idx, ["Result", "Template", "Confidence"]] = [
+            "PASS",
+            temp_names[c_idx],
+            best_val * 100.0,
+        ]
 
-    # Step 4: sort so PASS rows come first, REFER rows after
-    # and sort inside each group by Confidence descending
-    final_df["ResultOrder"] = final_df["Result"].map({"PASS": 0, "REFER": 1}).fillna(2)
-    final_df = (
-        final_df
-        .sort_values(["ResultOrder", "Confidence", "PatientID"], ascending=[True, False, True])
-        .drop(columns=["ResultOrder"])
-        .reset_index(drop=True)
-    )
+        temp_cost[r_idx, :] = -np.inf
+        temp_cost[:, c_idx] = -np.inf
 
-    # Sync final_df info back into patient_results
+    # REFER rows remain N/A and 0
+    final_df = final_df.sort_values("RepeatCorr", ascending=False).reset_index(drop=True)
+
+    # Sync final_df into patient_results so GUI matches Overview
     final_map = {
         row["PatientID"]: {
             "result": row["Result"],
@@ -346,10 +397,53 @@ def run_analysis(root_dir, templates, patient_dirs):
             r["assigned_template"] = "N/A"
             r["assigned_score"] = 0.0
 
+        # REFER patients should not show matched template
+        if r["result"] == "REFER":
+            r["matched_norm"] = np.zeros_like(r["est_norm"])
+            r["template_fft_freq"] = np.array([0.0])
+            r["template_fft_mag"] = np.array([0.0])
+        else:
+            assigned_template = r["assigned_template"]
+            if assigned_template in templates:
+                target = np.asarray(templates[assigned_template], dtype=np.float64).ravel()
+
+                # rebuild matched waveform from assigned template
+                t_sec = r["t_ms"] / 1000.0
+                resp_idx = (t_sec > DEFAULT_RESPONSE_START) & (t_sec < DEFAULT_RESPONSE_END)
+
+                if len(target) < len(r["oae_clean"]):
+                    target_adj = np.pad(target, (0, len(r["oae_clean"]) - len(target)))
+                else:
+                    target_adj = target[: len(r["oae_clean"])]
+
+                target_crop = target_adj[resp_idx]
+                target_norm = target_crop / (np.max(np.abs(target_crop)) + np.finfo(float).eps)
+
+                if len(r["est_norm"]) > 0 and len(target_norm) > 0:
+                    corr = correlate(r["est_norm"], target_norm, mode="full")
+                    lags = np.arange(-len(target_norm) + 1, len(r["est_norm"]))
+                    best_lag = int(lags[np.argmax(corr)]) if len(corr) else 0
+                    r["matched_norm"] = np.roll(target_norm, best_lag)
+                else:
+                    r["matched_norm"] = np.zeros_like(r["est_norm"])
+
+                # rebuild FFT of assigned template
+                if len(target_crop) > 1:
+                    nfft_t = len(target_crop)
+                    y_fft_t = np.abs(np.fft.fft(target_crop) / nfft_t)
+                    p1_t = y_fft_t[: nfft_t // 2 + 1]
+                    p1_t = p1_t / (np.max(p1_t) + np.finfo(float).eps)
+                    f_axis_t = r["fs"] * np.arange(0, nfft_t // 2 + 1) / nfft_t
+                else:
+                    p1_t = np.array([0.0])
+                    f_axis_t = np.array([0.0])
+
+                r["template_fft_freq"] = f_axis_t
+                r["template_fft_mag"] = p1_t
+
     return {
         "patient_results": patient_results,
         "scores_df": scores_df,
         "final_df": final_df,
         "templates": templates,
     }
-
