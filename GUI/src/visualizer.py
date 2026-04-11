@@ -193,22 +193,52 @@ def fft_fig(res):
     return fig
 
 
-def grid_fft_fig(results):
-    cols = 3
+def grid_fft_fig(results, cols=2):
+    import numpy as np
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
     rows = (len(results) + cols - 1) // cols
-    fig = make_subplots(rows=rows, cols=cols, subplot_titles=[f"Patient {r['PatientID']}" for r in results])
+
+    fig = make_subplots(
+        rows=rows,
+        cols=cols,
+        subplot_titles=[
+            f"Patient {r['PatientID']} | "
+            f"{r.get('result', 'N/A')} | "
+            f"Score: {r.get('assigned_score', 0):.1f}%"
+            for r in results
+        ]
+    )
 
     for i, r in enumerate(results):
         rr = i // cols + 1
         cc = i % cols + 1
 
+        est_mag = np.asarray(r["fft_mag"], dtype=float).copy()
+        tmpl_mag = np.asarray(r["template_fft_mag"], dtype=float).copy()
+
+        # Normalize each spectrum for visual comparison
+        if np.max(np.abs(est_mag)) > 0:
+            est_mag = est_mag / np.max(np.abs(est_mag))
+
+        if np.max(np.abs(tmpl_mag)) > 0:
+            tmpl_mag = tmpl_mag / np.max(np.abs(tmpl_mag))
+
+        color_map = {
+            "PASS": "#00ffcc",
+            "REFER": "#ff4d4d"
+        }
+        color_est = color_map.get(r.get("result"), "#aaaaaa")
+
         fig.add_trace(
             go.Scatter(
                 x=r["fft_freq"],
-                y=r["fft_mag"],
+                y=est_mag,
                 mode="lines",
                 name="Estimated FFT",
-                showlegend=False,
+                line=dict(color=color_est, width=3),
+                showlegend=(i == 0),
             ),
             row=rr,
             col=cc,
@@ -217,24 +247,37 @@ def grid_fft_fig(results):
         fig.add_trace(
             go.Scatter(
                 x=r["template_fft_freq"],
-                y=r["template_fft_mag"],
+                y=tmpl_mag,
                 mode="lines",
-                line=dict(dash="dash"),
                 name="Template FFT",
-                showlegend=False,
+                line=dict(dash="dash", width=3),
+                showlegend=(i == 0),
             ),
             row=rr,
             col=cc,
         )
 
-        fig.update_xaxes(title_text="Hz", range=[500, 5000], row=rr, col=cc)
+        fig.update_xaxes(
+            title_text="Frequency (Hz)",
+            range=[500, 5000],
+            row=rr,
+            col=cc
+        )
+
+        fig.update_yaxes(
+            title_text="Normalized Magnitude",
+            range=[0, 1.05],
+            row=rr,
+            col=cc
+        )
 
     fig.update_layout(
-        title="FFT Gallery",
+        title="Spectrum Gallery: Estimated vs Matched Template",
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        height=max(420, 280 * rows),
-        margin=dict(l=20, r=20, t=60, b=30),
+        height=max(500, 420 * rows),
+        margin=dict(l=20, r=20, t=70, b=30),
     )
+
     return fig
