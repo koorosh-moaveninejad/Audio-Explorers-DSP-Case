@@ -81,7 +81,7 @@ if bundle is None:
         """
         <div class="cosmic-card">
         <h3>Mission briefing</h3>
-        <p>This app vizualizes the output of our MATLAB workflow and adds:</p>
+        <p>This app visualizes the output of our MATLAB workflow and adds:</p>
             <ul>
             <li>folder or ZIP-based input</li>
             <li>patient-by-patient waveform and spectrum comparison</li>
