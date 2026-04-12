@@ -31,7 +31,7 @@ for p = 1:numPatients
     
     % Get center frequencies for spectral validation 
     if isfield(info, 'centerFreq'), target_freqs = info.centerFreq(:);
-    else, target_freqs = [1000; 2000; 3000; 4000]; end
+    end
     
     % B. Extraction & Sub-Sample Alignment (Handling Cosmic Jitter) 
     types = {'A','B','C','D'};
@@ -78,7 +78,7 @@ for p = 1:numPatients
     t = (0:info.epochSize-1)' / fs;
     win_env = exp(-((t - 0.008).^2) / (2 * 0.004^2)); 
     bpFilt = designfilt('bandpassiir', 'FilterOrder', 10, ...
-        'HalfPowerFrequency1', 1200, 'HalfPowerFrequency2', 3800, 'SampleRate', fs);
+        'HalfPowerFrequency1', 1000, 'HalfPowerFrequency2', 3800, 'SampleRate', fs);
     
     oae_clean = filtfilt(bpFilt, (acc/v_sets) .* win_env);
     oae_clean1 = filtfilt(bpFilt, (acc1/max(1,floor(v_sets/2))) .* win_env);
@@ -87,7 +87,7 @@ for p = 1:numPatients
     % E. Noise Floor Compensation 
     noise_est = (mean(epochData{1},2) + mean(epochData{2},2)) - ...
                 (mean(epochData{3},2) + mean(epochData{4},2));
-    oae_clean = oae_clean - 0.1 * filtfilt(bpFilt, noise_est);
+    oae_clean = oae_clean - 0.0 * filtfilt(bpFilt, noise_est);
     oae_results_cell{p} = oae_clean;
     
     % F. Quality Metrics (Repeatability) 

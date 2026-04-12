@@ -148,7 +148,12 @@ else:
         # st.caption(f"Template-independent OAE exists: {'Yes' if res['oae_exists_rule'] else 'No'}")
 
         st.plotly_chart(
-            line_fig(res["t_ms"], res["oae_clean"], f"Patient {selected_pid} · Estimated OAE", name="Estimated OAE"),
+            line_fig(
+                res["t_crop_ms"],
+                res["est_norm"],
+                f"Patient {selected_pid} · Estimated OAE",
+                name="Estimated OAE",
+            ),
             use_container_width=True,
             key=f"patient_line_{selected_pid}",
         )
