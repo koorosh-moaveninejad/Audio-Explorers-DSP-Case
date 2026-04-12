@@ -102,7 +102,6 @@ def process_patient_folder(patient_dir, templates):
     info = load_json_any(info_path)
     epoch_size = int(info["epochSize"])
 
-    # MATLAB logic: centerFreq if available, otherwise fallback
     if "centerFreq" in info:
         target_freqs = np.asarray(info["centerFreq"], dtype=np.float64).ravel()
     else:
@@ -129,19 +128,16 @@ def process_patient_folder(patient_dir, templates):
                 seg = rec[s:e].astype(np.float64)
                 seg = seg - np.mean(seg)
 
-                # MATLAB final logic: first 100 samples, max lag 20
                 if ref is None:
                     ref = seg[: min(100, len(seg))].copy()
                     shifted = seg
                 else:
                     seg_head = seg[: min(100, len(seg))]
                     ref_head = ref[: min(100, len(ref))]
-
                     corr = correlate(seg_head, ref_head, mode="full")
                     denom = np.linalg.norm(seg_head) * np.linalg.norm(ref_head)
                     if denom > 0:
                         corr = corr / denom
-
                     lags = np.arange(-len(ref_head) + 1, len(seg_head))
                     keep = (lags >= -20) & (lags <= 20)
                     corr = corr[keep]
@@ -180,7 +176,6 @@ def process_patient_folder(patient_dir, templates):
             "template_fft_mag": np.array([0.0]),
         }
 
-    # MATLAB final logic: +1+1+1-3 style accumulation, split-half
     acc = np.zeros(epoch_size, dtype=np.float64)
     acc1 = np.zeros(epoch_size, dtype=np.float64)
     acc2 = np.zeros(epoch_size, dtype=np.float64)
@@ -199,12 +194,10 @@ def process_patient_folder(patient_dir, templates):
     t = np.arange(epoch_size) / fs
     win_env = np.exp(-((t - 0.008) ** 2) / (2 * 0.004**2))
 
-    # Match MATLAB final filter: 1200-3800
     oae_clean = bandpass_filter((acc / max(v_sets, 1)) * win_env, fs)
     oae_clean1 = bandpass_filter((acc1 / max(1, int(np.floor(v_sets / 2)))) * win_env, fs)
     oae_clean2 = bandpass_filter((acc2 / max(1, int(np.floor(v_sets / 2)))) * win_env, fs)
 
-    # MATLAB final logic: noise subtraction only on oae_clean
     noise_est = (
         np.mean(epoch_data[0], axis=1)
         + np.mean(epoch_data[1], axis=1)
@@ -220,12 +213,11 @@ def process_patient_folder(patient_dir, templates):
     x2 = oae_clean2[resp_idx]
     repeat_corr = max(0.0, safe_corrcoef(x1, x2))
 
-    # FFT of estimated OAE
     if len(oae_crop) > 1:
         nfft = len(oae_crop)
         y_fft = np.abs(np.fft.fft(oae_crop) / nfft)
         p1 = y_fft[: nfft // 2 + 1]
-        p1 = p1 / (np.max(p1) + np.finfo(float).eps)
+        p1 = p1 / (np.max(y_fft) + np.finfo(float).eps)
         f_axis = fs * np.arange(0, nfft // 2 + 1) / nfft
     else:
         p1 = np.array([0.0])
@@ -246,24 +238,22 @@ def process_patient_folder(patient_dir, templates):
         else:
             target_adj = target[: len(oae_clean)]
 
-        target_crop = target_adj[resp_idx]
+        current_target_crop = target_adj[resp_idx]
 
-        # MATLAB final logic: time-domain xcorr, no abs, max(c), clamp to >=0 later
-        if len(oae_crop) == 0 or len(target_crop) == 0 or np.std(oae_crop) == 0 or np.std(target_crop) == 0:
+        if len(oae_crop) == 0 or len(current_target_crop) == 0 or np.std(oae_crop) == 0 or np.std(current_target_crop) == 0:
             time_score = 0.0
         else:
-            corr = correlate(oae_crop, target_crop, mode="full")
-            denom = np.linalg.norm(oae_crop) * np.linalg.norm(target_crop)
+            corr = correlate(oae_crop, current_target_crop, mode="full")
+            denom = np.linalg.norm(oae_crop) * np.linalg.norm(current_target_crop)
             time_score = float(np.max(corr / denom)) if denom > 0 else 0.0
             if not np.isfinite(time_score):
                 time_score = 0.0
 
-        # MATLAB final logic: spectral fit at center frequencies
-        if len(target_crop) > 1:
-            y_fft_t = np.abs(np.fft.fft(target_crop) / len(target_crop))
-            p1_t = y_fft_t[: len(target_crop) // 2 + 1]
-            p1_t = p1_t / (np.max(p1_t) + np.finfo(float).eps)
-            f_axis_t = fs * np.arange(0, len(target_crop) // 2 + 1) / len(target_crop)
+        if len(current_target_crop) > 1:
+            y_fft_t = np.abs(np.fft.fft(current_target_crop) / len(current_target_crop))
+            p1_t = y_fft_t[: len(current_target_crop) // 2 + 1]
+            p1_t = p1_t / (np.max(y_fft_t) + np.finfo(float).eps)
+            f_axis_t = fs * np.arange(0, len(current_target_crop) // 2 + 1) / len(current_target_crop)
         else:
             p1_t = np.array([0.0])
             f_axis_t = np.array([0.0])
@@ -275,13 +265,12 @@ def process_patient_folder(patient_dir, templates):
         spectral_fit /= max(len(target_freqs), 1)
 
         score = 0.7 * max(0.0, time_score) + 0.3 * spectral_fit
-
         template_scores.append({"PatientID": p_id, "Template": name, "Score": score})
 
         if score > best_score:
             best_score = score
             best_template_name = name
-            best_target_crop = target_crop.copy()
+            best_target_crop = current_target_crop.copy()
             best_f_axis_t = f_axis_t
             best_p1_t = p1_t
 
@@ -314,7 +303,6 @@ def process_patient_folder(patient_dir, templates):
         "template_fft_freq": best_f_axis_t,
         "template_fft_mag": best_p1_t,
     }
-
 
 def run_analysis(root_dir, templates, patient_dirs):
     patient_results = []
