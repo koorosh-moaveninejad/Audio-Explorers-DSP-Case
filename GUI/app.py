@@ -98,6 +98,14 @@ else:
     final_df = bundle["final_df"]
     patient_results = bundle["patient_results"]
     scores_df = bundle["scores_df"]
+    final_df = final_df.copy()
+    final_df["ResultOrder"] = final_df["Result"].map({"PASS": 0, "REFER": 1}).fillna(2)
+    final_df = (
+        final_df
+        .sort_values(["ResultOrder", "RepeatCorr", "Confidence"], ascending=[True, False, False])
+        .drop(columns=["ResultOrder"])
+        .reset_index(drop=True)
+    )
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Patients", len(patient_results))
