@@ -189,4 +189,105 @@ for p = 1:numPatients
     end
     grid on; xlim([4 16]);
 end
-sgtitle('DGS Titanius-12 Database: Recovered OAEs vs Shuffled Templates', 'FontWeight', 'bold');
+sgtitle('Recovered OAEs vs Shuffled Templates', 'FontWeight', 'bold');
+
+
+% --- 5. EXPORT FOR GUI ---
+exportDir = fullfile(basePath, 'gui_export');
+if ~exist(exportDir, 'dir')
+    mkdir(exportDir);
+end
+
+% Save final mapping
+writetable(final_mapping, fullfile(exportDir, 'final_mapping.csv'));
+
+% Save template scores
+scores_table = array2table(all_scores_matrix, ...
+    'VariableNames', {'PatientIdx','TemplateIdx','Score'});
+
+scores_table.PatientID = strings(height(scores_table),1);
+scores_table.Template = strings(height(scores_table),1);
+
+for i = 1:height(scores_table)
+    scores_table.PatientID(i) = string(strrep(patientFolders{scores_table.PatientIdx(i)}, 'patient_', ''));
+    scores_table.Template(i) = string(temp_names{scores_table.TemplateIdx(i)});
+end
+
+scores_table = scores_table(:, {'PatientID','Template','Score'});
+writetable(scores_table, fullfile(exportDir, 'template_scores.csv'));
+
+% Build patient_results struct for GUI
+patient_results = struct([]);
+
+for p = 1:numPatients
+    pID = string(strrep(patientFolders{p}, 'patient_', ''));
+    row_idx = find(final_mapping.PatientID == pID, 1);
+
+    sig = oae_results_cell{p};
+    t_ms = (0:length(sig)-1)' / fs_values(p) * 1000;
+    crop_idx = (t_ms > 4 & t_ms < 16);
+
+    est_crop = sig(crop_idx);
+    est_norm = est_crop / (max(abs(est_crop)) + eps);
+
+    assigned_template = char(final_mapping.Template(row_idx));
+    matched_norm = zeros(size(est_norm));
+    template_fft_freq = 0;
+    template_fft_mag = 0;
+
+    if final_mapping.Result(row_idx) == "PASS" && final_mapping.Template(row_idx) ~= "N/A"
+        tmp = templates.(assigned_template)(:);
+        tmp_adj = [tmp; zeros(max(0, length(sig)-length(tmp)), 1)];
+        tmp_adj = tmp_adj(1:length(sig));
+        tmp_crop = tmp_adj(crop_idx);
+        tmp_norm = tmp_crop / (max(abs(tmp_crop)) + eps);
+
+        [c_al, lags] = xcorr(est_norm, tmp_norm, 'coeff');
+        [~, bl] = max(c_al);
+        matched_norm = circshift(tmp_norm, lags(bl));
+
+        Nfft_t = length(tmp_crop);
+        Yt = abs(fft(tmp_crop) / Nfft_t);
+        template_fft_mag = Yt(1:floor(Nfft_t/2)+1) / (max(Yt) + eps);
+        template_fft_freq = fs_values(p) * (0:floor(Nfft_t/2)) / Nfft_t;
+    end
+
+    Nfft = length(est_crop);
+    Ye = abs(fft(est_crop) / Nfft);
+    fft_mag = Ye(1:floor(Nfft/2)+1) / (max(Ye) + eps);
+    fft_freq = fs_values(p) * (0:floor(Nfft/2)) / Nfft;
+
+    patient_results(p).PatientID = char(pID);
+    patient_results(p).fs = fs_values(p);
+    patient_results(p).t_ms = t_ms;
+    patient_results(p).t_crop_ms = t_ms(crop_idx);
+    patient_results(p).oae_clean = sig;
+    patient_results(p).oae_crop = est_crop;
+    patient_results(p).est_norm = est_norm;
+    patient_results(p).matched_norm = matched_norm;
+    patient_results(p).fft_freq = fft_freq;
+    patient_results(p).fft_mag = fft_mag;
+    patient_results(p).template_fft_freq = template_fft_freq;
+    patient_results(p).template_fft_mag = template_fft_mag;
+    patient_results(p).result = char(final_mapping.Result(row_idx));
+    patient_results(p).assigned_template = assigned_template;
+    patient_results(p).assigned_score = final_mapping.Confidence(row_idx);
+    patient_results(p).repeat_corr = final_mapping.RepeatCorr(row_idx);
+end
+
+save(fullfile(exportDir, 'patient_results.mat'), 'patient_results', 'temp_names');
+
+% Save summary JSON
+summary.final_mapping_file = 'final_mapping.csv';
+summary.template_scores_file = 'template_scores.csv';
+summary.patient_results_file = 'patient_results.mat';
+summary.num_patients = numPatients;
+summary.template_names = temp_names;
+
+jsonText = jsonencode(summary, PrettyPrint=true);
+fid = fopen(fullfile(exportDir, 'summary.json'), 'w');
+fprintf(fid, '%s', jsonText);
+fclose(fid);
+
+disp('--- GUI EXPORT COMPLETE ---');
+disp(exportDir);
