@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 from src.constants import COSMIC_CSS, APP_TITLE, APP_SUBTITLE
-from src.io_utils import parse_patient_structure, unpack_zip_to_temp
-from src.dsp_engine import run_analysis
+from src.io_utils import unpack_zip_to_temp, load_matlab_export
 from src.visualizer import (
     line_fig,
     match_fig,
@@ -25,25 +24,31 @@ st.markdown(f'<div class="cosmic-subtitle">{APP_SUBTITLE}</div>', unsafe_allow_h
 
 with st.sidebar:
     st.markdown("### Input portal")
+
     source_mode = st.radio(
         "Choose data source",
         ["Local folder path", "ZIP upload"],
-        help="Use a folder path if Streamlit runs on the same machine as your data. Use ZIP upload for browser-based usage.",
+        help="Use a MATLAB export folder path if Streamlit runs on the same machine as your exported results. Use ZIP upload for browser-based usage.",
     )
 
-    base_path = ""
+    DEFAULT_EXPORT_PATH = "/Users/kourosh/Desktop/University/Self Study/Audio-Explorers20206/Diagnostics DSP/Patient Data/gui_export"
+
+    base_path = DEFAULT_EXPORT_PATH
     uploaded_zip = None
 
     if source_mode == "Local folder path":
         base_path = st.text_input(
-            "Base folder",
-            value="",
-            placeholder="/Users/you/.../Patient Data",
+            "MATLAB export folder",
+            value=DEFAULT_EXPORT_PATH,
+            placeholder="/Users/you/.../gui_export",
         )
-        st.caption("The folder should contain lostOaes.json and patient_* subfolders.")
+        st.caption("The folder should contain final_mapping.csv, template_scores.csv, patient_results.mat, and summary.json.")
     else:
-        uploaded_zip = st.file_uploader("Upload ZIP archive of the dataset", type=["zip"])
-        st.caption("ZIP should contain lostOaes.json and patient_* folders.")
+        uploaded_zip = st.file_uploader(
+            "Upload ZIP archive of the MATLAB export",
+            type=["zip"]
+        )
+        st.caption("ZIP should contain final_mapping.csv, template_scores.csv, patient_results.mat, and summary.json.")
 
     run_btn = st.button("Run cosmic analysis", use_container_width=True, type="primary")
 
@@ -55,21 +60,19 @@ if run_btn:
     try:
         if source_mode == "Local folder path":
             if not base_path.strip():
-                st.error("Please provide a base folder path.")
+                st.error("Please provide the export folder path.")
             else:
-                root, templates, patient_dirs = parse_patient_structure(base_path.strip())
-                st.session_state.analysis_bundle = run_analysis(root, templates, patient_dirs)
+                st.session_state.analysis_bundle = load_matlab_export(base_path.strip())
         else:
             if uploaded_zip is None:
                 st.error("Please upload a ZIP archive first.")
             else:
                 temp_holder, extracted_root = unpack_zip_to_temp(uploaded_zip)
                 st.session_state.temp_holder = temp_holder
-                root, templates, patient_dirs = parse_patient_structure(extracted_root)
-                st.session_state.analysis_bundle = run_analysis(root, templates, patient_dirs)
+                st.session_state.analysis_bundle = load_matlab_export(extracted_root)
     except Exception as e:
         st.session_state.analysis_bundle = None
-        st.error(f"Analysis failed: {e}")
+        st.error(f"Loading failed: {e}")
 
 bundle = st.session_state.analysis_bundle
 
