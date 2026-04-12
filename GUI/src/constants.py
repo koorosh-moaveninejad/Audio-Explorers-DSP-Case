@@ -1,6 +1,6 @@
-APP_TITLE = "TEOAE Cosmic Analyzer"
+APP_TITLE = "TEOAE Analyzer"
 APP_SUBTITLE = (
-    "Explore patients, templates, SNR, reproducibility, and waveform matching "
+    "Explore patients, templates, reproducibility, and waveform matching "
     "in a fantasy-space interface."
 )
 

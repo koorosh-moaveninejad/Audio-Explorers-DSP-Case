@@ -12,7 +12,7 @@ from src.visualizer import (
 )
 
 st.set_page_config(
-    page_title="TEOAE Cosmic Analyzer",
+    page_title="TEOAE Analyzer",
     page_icon="🪐",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -81,11 +81,9 @@ if bundle is None:
         """
         <div class="cosmic-card">
         <h3>Mission briefing</h3>
-        <p>This app reproduces your MATLAB workflow in Python and adds:</p>
+        <p>This app vizualizes the output of our MATLAB workflow and adds:</p>
             <ul>
             <li>folder or ZIP-based input</li>
-            <li>repeatability-based PASS / REFER decision</li>
-            <li>global competitive template assignment</li>
             <li>patient-by-patient waveform and spectrum comparison</li>
             <li>gallery views for all patients</li>
         </ul>
@@ -123,8 +121,20 @@ else:
     ])
 
     with tabs[0]:
-         st.markdown("### Final mission mapping")
-         st.table(final_df.set_index(pd.Index([""] * len(final_df))))
+        st.markdown("### Final mission mapping")
+        
+        overview_df = final_df.copy()
+        overview_df["PatientID"] = overview_df["PatientID"].astype(str)
+
+        overview_df["Confidence"] = overview_df["Confidence"].map(lambda x: f"{float(x):.4f}")
+        overview_df["RepeatCorr"] = overview_df["RepeatCorr"].map(lambda x: f"{float(x):.4f}")
+        overview_df["Template"] = overview_df["Template"].replace("", "N/A")
+
+        st.dataframe(
+            overview_df,
+            use_container_width=True,
+            hide_index=True,
+        )
 
     with tabs[1]:
         patient_ids = [r["PatientID"] for r in patient_results]
