@@ -102,7 +102,7 @@ else:
     c1, c2, c3 = st.columns(3)
     c1.metric("Patients", len(patient_results))
     c2.metric("PASS (RepeatCorr)", int((final_df["Result"] == "PASS").sum()))
-    c3.metric("Templates", len(bundle["templates"]))
+    c3.metric("Templates", scores_df["Template"].nunique())
 
     tabs = st.tabs([
         "Overview",

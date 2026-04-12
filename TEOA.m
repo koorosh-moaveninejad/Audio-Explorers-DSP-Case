@@ -276,7 +276,7 @@ for p = 1:numPatients
 end
 
 save(fullfile(exportDir, 'patient_results.mat'), 'patient_results', 'temp_names');
-
+save(fullfile(exportDir, 'templates.mat'), 'templates');
 % Save summary JSON
 summary.final_mapping_file = 'final_mapping.csv';
 summary.template_scores_file = 'template_scores.csv';
