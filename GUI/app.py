@@ -31,7 +31,7 @@ with st.sidebar:
         help="Use a MATLAB export folder path if Streamlit runs on the same machine as your exported results. Use ZIP upload for browser-based usage.",
     )
 
-    DEFAULT_EXPORT_PATH = "/Users/kourosh/Desktop/University/Self Study/Audio-Explorers20206/Diagnostics DSP/Patient Data/gui_export"
+    DEFAULT_EXPORT_PATH = "/app/gui_export"
 
     base_path = DEFAULT_EXPORT_PATH
     uploaded_zip = None
